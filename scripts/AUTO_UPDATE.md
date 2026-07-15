@@ -1,32 +1,55 @@
-# Automatic updates
+# Automatic updates on Ubuntu/Linux
 
-Run an update manually from PowerShell:
+The updater requires Bash, Git, and `flock` (provided by `util-linux` on
+Ubuntu). Run it manually from the repository root:
 
-```powershell
-& D:\Tonkic-api\scripts\auto-update.ps1
+```bash
+./scripts/auto-update.sh
 ```
 
-The script fetches and merges `origin/main`, then fetches and merges
-`QuantumNous/new-api` pull request `#5062`. It refuses to run with uncommitted
-changes and records results in `logs/auto-update.log`.
+It fetches and merges `origin/main`, then fetches and merges pull request
+`QuantumNous/new-api#5062`. It refuses to run with uncommitted changes, prevents
+concurrent runs, aborts a conflicted merge, and writes to
+`logs/auto-update.log`.
 
-To rebuild the merged source and restart the `new-api` Docker Compose service:
+To rebuild the merged source and recreate the `new-api` Docker Compose service:
 
-```powershell
-& D:\Tonkic-api\scripts\auto-update.ps1 -RebuildDocker
+```bash
+./scripts/auto-update.sh --rebuild-docker
 ```
 
-Install a daily Windows scheduled task (default: 04:00):
+## Install the systemd timer
 
-```powershell
-& D:\Tonkic-api\scripts\install-auto-update-task.ps1
+Install a daily timer at 04:00:
+
+```bash
+sudo ./scripts/install-auto-update.sh
 ```
 
 Choose another time and enable automatic Docker deployment:
 
-```powershell
-& D:\Tonkic-api\scripts\install-auto-update-task.ps1 -DailyAt "03:30" -RebuildDocker
+```bash
+sudo ./scripts/install-auto-update.sh --time 03:30 --rebuild-docker
 ```
 
-Installing the task requires an account allowed to register Windows scheduled
-tasks. The task is intentionally not installed by the repository setup itself.
+The service runs as the user who invoked `sudo`. For Docker deployment, that
+user must be allowed to access the Docker daemon (typically by membership in
+the `docker` group). Re-login after adding group membership.
+
+Useful commands:
+
+```bash
+systemctl status tonkic-api-auto-update.timer
+systemctl list-timers tonkic-api-auto-update.timer
+journalctl -u tonkic-api-auto-update.service
+sudo systemctl start tonkic-api-auto-update.service
+```
+
+To remove the timer and service:
+
+```bash
+sudo systemctl disable --now tonkic-api-auto-update.timer
+sudo rm /etc/systemd/system/tonkic-api-auto-update.timer
+sudo rm /etc/systemd/system/tonkic-api-auto-update.service
+sudo systemctl daemon-reload
+```
