@@ -13,7 +13,7 @@ database="$app_dir/one-api.db"
 tmux_session="new-api"
 backup_dir="/root/new-api-backups"
 health_url="http://127.0.0.1:3000/api/status"
-ossutil_bin="/usr/local/bin/ossutil"
+ossutil_bin=""
 lock_file="/var/lock/tonkic-api-update.lock"
 
 timestamp=$(date +%Y%m%d-%H%M%S)
@@ -132,8 +132,9 @@ if ! flock -n 9; then
   exit 0
 fi
 
-[[ -x $ossutil_bin ]] || {
-  log "ossutil is missing: $ossutil_bin. Install and configure it before updating."
+ossutil_bin=$(command -v ossutil || true)
+[[ -n $ossutil_bin && -x $ossutil_bin ]] || {
+  log "ossutil is missing from PATH. Install and configure it before updating."
   exit 1
 }
 
