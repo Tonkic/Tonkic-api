@@ -74,14 +74,16 @@ jobs:
             printf '%s\n' "${{ steps.release.outputs.tag }}" > version.txt
           )
 
-      - name: Install ossutil
+      - name: Set up Go for ossutil
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+
+      - name: Build official ossutil
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --retry 3 \
-            --output /usr/local/bin/ossutil \
-            https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-          chmod +x /usr/local/bin/ossutil
+          GOBIN=/usr/local/bin go install github.com/aliyun/ossutil@v1.7.19
           ossutil --version
 
       - name: Upload release to OSS

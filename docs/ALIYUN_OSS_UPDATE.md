@@ -23,8 +23,9 @@ tonkic-api/releases/latest/version.txt
 
 ## One-time server setup
 
-The server needs only `update.sh`. Download it from OSS after configuring
-`ossutil` for the RAM user `power-user-access`:
+The server needs only `update.sh` in addition to the standard `ossutil` client.
+Configure `ossutil` once for the RAM user `power-user-access`, using the
+Shenzhen internal endpoint. Then download the updater:
 
 ```bash
 sudo mkdir -p /root/bin

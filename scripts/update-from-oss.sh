@@ -131,13 +131,10 @@ if ! flock -n 9; then
   exit 0
 fi
 
-if [[ ! -x $ossutil_bin ]]; then
-  log "Installing ossutil."
-  curl --fail --location --retry 3 \
-    --output "$ossutil_bin" \
-    https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
-  chmod 0755 "$ossutil_bin"
-fi
+[[ -x $ossutil_bin ]] || {
+  log "ossutil is missing: $ossutil_bin. Install and configure it before updating."
+  exit 1
+}
 
 case $(uname -m) in
   x86_64|amd64) asset="new-api-linux-amd64" ;;
