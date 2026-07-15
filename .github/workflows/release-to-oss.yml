@@ -1,0 +1,101 @@
+name: Sync Release to Alibaba Cloud OSS
+
+permissions:
+  contents: read
+
+on:
+  workflow_run:
+    workflows:
+      - Release (Linux, macOS, Windows)
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sync (for example, v0.1.0)
+        required: true
+
+jobs:
+  sync:
+    if: >-
+      (github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success') &&
+      vars.ALIYUN_OSS_BUCKET != '' &&
+      vars.ALIYUN_OSS_ENDPOINT != ''
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag=$(git tag --points-at "${{ github.event.workflow_run.head_sha }}" | sort -V | tail -n 1)
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "Unable to resolve the release tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'new-api-*' \
+            --pattern 'checksums-linux.txt' \
+            --dir release-assets
+          amd64_asset=$(find release-assets -maxdepth 1 -type f -name 'new-api-*' ! -name 'new-api-arm64-*' ! -name 'new-api-macos-*' ! -name '*.exe' | head -n 1)
+          arm64_asset=$(find release-assets -maxdepth 1 -type f -name 'new-api-arm64-*' | head -n 1)
+          test -n "$amd64_asset"
+          test -n "$arm64_asset"
+          cp "$amd64_asset" release-assets/new-api-linux-amd64
+          cp "$arm64_asset" release-assets/new-api-linux-arm64
+          (
+            cd release-assets
+            sha256sum new-api-linux-amd64 new-api-linux-arm64 > checksums-latest.txt
+            printf '%s\n' "${{ steps.release.outputs.tag }}" > version.txt
+          )
+
+      - name: Install ossutil
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            --output /usr/local/bin/ossutil \
+            https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
+          chmod +x /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Upload release to OSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$OSS_ACCESS_KEY_ID" || -z "$OSS_ACCESS_KEY_SECRET" ]]; then
+            echo "Alibaba Cloud OSS credentials are not configured" >&2
+            exit 1
+          fi
+          destination="oss://${OSS_BUCKET}/releases/${{ steps.release.outputs.tag }}/"
+          latest="oss://${OSS_BUCKET}/releases/latest/"
+          ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            cp -r -f release-assets/ "$destination"
+          for file in new-api-linux-amd64 new-api-linux-arm64 checksums-latest.txt version.txt; do
+            ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+              cp -f "release-assets/$file" "${latest}${file}"
+          done
