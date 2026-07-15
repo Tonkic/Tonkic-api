@@ -7,8 +7,9 @@ oss://update-cpa-plus/tonkic-api/
 ```
 
 The existing `CPA/` prefix is never listed, modified, copied, or deleted.
-GitHub Actions uses the Shenzhen public endpoint to publish each release. The
-server uses the Shenzhen internal endpoint and does not connect to GitHub.
+GitHub Actions and the Guangzhou ECS server use the Shenzhen public endpoint
+because OSS internal endpoints do not work across Alibaba Cloud regions. The
+server connects only to OSS and does not connect to GitHub.
 
 `power-user-access` is the RAM username, not an AccessKey ID. GitHub Actions
 secrets must contain an AccessKey pair created under that RAM user:
@@ -31,11 +32,11 @@ tonkic-api/releases/latest/version.txt
 
 The server needs only `update.sh` in addition to the standard `ossutil` client.
 Configure `ossutil` once for the RAM user `power-user-access`, using the
-Shenzhen internal endpoint. Then download the updater:
+Shenzhen public endpoint. Then download the updater:
 
 ```bash
 sudo mkdir -p /root/bin
-sudo ossutil -e oss-cn-shenzhen-internal.aliyuncs.com \
+sudo ossutil -e oss-cn-shenzhen.aliyuncs.com \
   cp oss://update-cpa-plus/tonkic-api/update.sh /root/bin/update-tonkic-api
 sudo chmod 700 /root/bin/update-tonkic-api
 ```

@@ -5,7 +5,7 @@ umask 077
 # Tonkic API updater for the existing /root/new-api tmux deployment.
 # This script only reads from oss://update-cpa-plus/tonkic-api/.
 oss_bucket="update-cpa-plus"
-oss_endpoint="oss-cn-shenzhen-internal.aliyuncs.com"
+oss_endpoint="oss-cn-shenzhen.aliyuncs.com"
 oss_prefix="tonkic-api/releases/latest"
 app_dir="/root/new-api"
 binary="$app_dir/new-api"
