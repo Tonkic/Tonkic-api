@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 # Tonkic API updater for the existing /root/new-api tmux deployment.
 # This script only reads from oss://update-cpa-plus/tonkic-api/.
@@ -169,7 +170,7 @@ if [[ $current_sha == "$target_sha" ]]; then
   exit 0
 fi
 
-mkdir -p -- "$backup_dir"
+install -d -m 0700 "$backup_dir"
 log "Creating a full pre-update archive."
 tar -C /root -czf "$backup_dir/new-api-backup-$timestamp.tar.gz" new-api
 
