@@ -96,9 +96,9 @@ jobs:
           fi
           destination="oss://${OSS_BUCKET}/tonkic-api/releases/${{ steps.release.outputs.tag }}/"
           latest="oss://${OSS_BUCKET}/tonkic-api/releases/latest/"
-          ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
-            cp -r -f release-assets/ "$destination"
           for file in new-api-linux-amd64 new-api-linux-arm64 checksums-latest.txt version.txt update.sh; do
+            ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+              cp -f "release-assets/$file" "${destination}${file}"
             ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
               cp -f "release-assets/$file" "${latest}${file}"
           done

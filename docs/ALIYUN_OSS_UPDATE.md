@@ -10,6 +10,12 @@ The existing `CPA/` prefix is never listed, modified, copied, or deleted.
 GitHub Actions uses the Shenzhen public endpoint to publish each release. The
 server uses the Shenzhen internal endpoint and does not connect to GitHub.
 
+`power-user-access` is the RAM username, not an AccessKey ID. GitHub Actions
+secrets must contain an AccessKey pair created under that RAM user:
+
+- `ALIYUN_OSS_ACCESS_KEY_ID`: the generated ID, typically beginning with `LTAI`;
+- `ALIYUN_OSS_ACCESS_KEY_SECRET`: the generated secret shown at creation time.
+
 ## OSS layout
 
 ```text
