@@ -67,6 +67,7 @@ jobs:
           test -n "$arm64_asset"
           cp "$amd64_asset" release-assets/new-api-linux-amd64
           cp "$arm64_asset" release-assets/new-api-linux-arm64
+          cp scripts/update-from-oss.sh release-assets/update.sh
           (
             cd release-assets
             sha256sum new-api-linux-amd64 new-api-linux-arm64 > checksums-latest.txt
@@ -91,11 +92,13 @@ jobs:
             echo "Alibaba Cloud OSS credentials are not configured" >&2
             exit 1
           fi
-          destination="oss://${OSS_BUCKET}/releases/${{ steps.release.outputs.tag }}/"
-          latest="oss://${OSS_BUCKET}/releases/latest/"
+          destination="oss://${OSS_BUCKET}/tonkic-api/releases/${{ steps.release.outputs.tag }}/"
+          latest="oss://${OSS_BUCKET}/tonkic-api/releases/latest/"
           ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
             cp -r -f release-assets/ "$destination"
-          for file in new-api-linux-amd64 new-api-linux-arm64 checksums-latest.txt version.txt; do
+          for file in new-api-linux-amd64 new-api-linux-arm64 checksums-latest.txt version.txt update.sh; do
             ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
               cp -f "release-assets/$file" "${latest}${file}"
           done
+          ossutil -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            cp -f release-assets/update.sh "oss://${OSS_BUCKET}/tonkic-api/update.sh"

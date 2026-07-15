@@ -1,86 +1,67 @@
-# Alibaba Cloud OSS release delivery
+# Tonkic API updates through Alibaba Cloud OSS
 
-GitHub Releases remain the source of truth. After a successful release build,
-`.github/workflows/release-to-oss.yml` copies Linux binaries to OSS under both
-versioned and stable paths:
+Release files are stored only under this prefix:
 
 ```text
-oss://BUCKET/releases/v0.1.0/...
-oss://BUCKET/releases/latest/new-api-linux-amd64
-oss://BUCKET/releases/latest/new-api-linux-arm64
-oss://BUCKET/releases/latest/checksums-latest.txt
-oss://BUCKET/releases/latest/version.txt
+oss://update-cpa-plus/tonkic-api/
 ```
 
-## GitHub repository settings
+The existing `CPA/` prefix is never listed, modified, copied, or deleted.
+GitHub Actions uses the Shenzhen public endpoint to publish each release. The
+server uses the Shenzhen internal endpoint and does not connect to GitHub.
 
-Create these Actions variables under **Settings > Secrets and variables >
-Actions > Variables**:
+## OSS layout
 
-- `ALIYUN_OSS_BUCKET`: bucket name without `oss://`.
-- `ALIYUN_OSS_ENDPOINT`: public endpoint such as
-  `oss-cn-hangzhou.aliyuncs.com`.
-
-Create these Actions secrets:
-
-- `ALIYUN_OSS_ACCESS_KEY_ID`
-- `ALIYUN_OSS_ACCESS_KEY_SECRET`
-
-Use a dedicated RAM user restricted to this bucket and the `releases/` prefix.
-Do not use the Alibaba Cloud account owner AccessKey. A minimal custom RAM
-policy is:
-
-```json
-{
-  "Version": "1",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["oss:PutObject", "oss:GetObject", "oss:ListObjects"],
-      "Resource": [
-        "acs:oss:*:*:YOUR_BUCKET",
-        "acs:oss:*:*:YOUR_BUCKET/releases/*"
-      ]
-    }
-  ]
-}
+```text
+tonkic-api/update.sh
+tonkic-api/releases/v0.1.0/...
+tonkic-api/releases/latest/new-api-linux-amd64
+tonkic-api/releases/latest/new-api-linux-arm64
+tonkic-api/releases/latest/checksums-latest.txt
+tonkic-api/releases/latest/version.txt
 ```
 
-After adding the settings, open **Actions > Sync Release to Alibaba Cloud OSS
-> Run workflow**, enter the release tag, and run it once. Later releases sync
-automatically.
+## One-time server setup
 
-## ECS server setup
-
-For ECS in the same OSS region, use the internal endpoint, for example
-`oss-cn-hangzhou-internal.aliyuncs.com`, to avoid public traffic charges. The
-Bucket must be reachable from that ECS instance.
-
-Copy the repository (or at least the two scripts) to the server, then run:
+The server needs only `update.sh`. Download it from OSS after configuring
+`ossutil` for the RAM user `power-user-access`:
 
 ```bash
-sudo -E env \
-  OSS_BUCKET=YOUR_BUCKET \
-  OSS_ENDPOINT=oss-cn-hangzhou-internal.aliyuncs.com \
-  OSS_ACCESS_KEY_ID=YOUR_SERVER_RAM_USER_KEY \
-  OSS_ACCESS_KEY_SECRET=YOUR_SERVER_RAM_USER_SECRET \
-  SERVICE_NAME=new-api \
-  INSTALL_PATH=/usr/local/bin/new-api \
-  ./scripts/install-oss-updater.sh
+sudo mkdir -p /root/bin
+sudo ossutil -e oss-cn-shenzhen-internal.aliyuncs.com \
+  cp oss://update-cpa-plus/tonkic-api/update.sh /root/bin/update-tonkic-api
+sudo chmod 700 /root/bin/update-tonkic-api
 ```
 
-The installer stores credentials in `/etc/tonkic-api/oss-update.env` with mode
-`0600`, installs `ossutil`, and enables a daily systemd timer. Prefer a separate
-read-only RAM user for the server, restricted to `GetObject` on
-`YOUR_BUCKET/releases/*`.
-
-Check or trigger the updater with:
+Run an update manually:
 
 ```bash
-systemctl status tonkic-api-oss-update.timer
-sudo systemctl start tonkic-api-oss-update.service
-journalctl -u tonkic-api-oss-update.service
+sudo /root/bin/update-tonkic-api
 ```
 
-The updater detects amd64/arm64, validates SHA-256, atomically replaces the
-binary, restarts the configured service, and verifies that it is active.
+The script is tailored to the existing deployment:
+
+- application directory: `/root/new-api`;
+- binary: `/root/new-api/new-api`;
+- SQLite database: `/root/new-api/one-api.db`;
+- environment: `/root/new-api/.env`;
+- tmux session: `new-api`;
+- health check: `http://127.0.0.1:3000/api/status`;
+- backups: `/root/new-api-backups`.
+
+Before replacement it creates both a full directory archive and a consistent
+SQLite online backup. It stops only the process whose executable resolves to
+`/root/new-api/new-api`, replaces only that binary, restarts the tmux session,
+and waits for the health endpoint. If startup fails, it automatically restores
+the old binary and SQLite database and starts the old version.
+
+No source checkout, GitHub access, systemd service conversion, `.env` rewrite,
+database deletion, or directory replacement is performed.
+
+## Optional cron schedule
+
+To check at 04:00 every day while keeping only one updater script:
+
+```bash
+(crontab -l 2>/dev/null; echo '0 4 * * * /root/bin/update-tonkic-api >> /root/new-api/logs/oss-update.log 2>&1') | crontab -
+```
