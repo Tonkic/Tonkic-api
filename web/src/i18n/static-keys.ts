@@ -497,6 +497,17 @@ export const STATIC_I18N_KEYS = [
   'Customize sidebar display content',
   'Reset to Default',
 
+  // Support tickets
+  'Account',
+  'Bug',
+  'Suggestion',
+  'Pending support',
+  'Waiting for you',
+  'Closed',
+  'Low',
+  'Normal',
+  'High',
+
   // Available models
   'Available Models',
   'View all currently available models',
