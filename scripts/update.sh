@@ -3,17 +3,15 @@ set -Eeuo pipefail
 umask 077
 
 # Tonkic API updater for the existing /root/new-api tmux deployment.
-# This script only reads from oss://update-cpa-plus/tonkic-api/.
-oss_bucket="update-cpa-plus"
-oss_endpoint="oss-cn-shenzhen.aliyuncs.com"
-oss_prefix="tonkic-api/releases/latest"
+# Release metadata and binaries are downloaded directly from GitHub Releases.
+github_repository="Tonkic/Tonkic-api"
+github_releases="https://github.com/${github_repository}/releases"
 app_dir="/root/new-api"
 binary="$app_dir/new-api"
 database="$app_dir/one-api.db"
 tmux_session="new-api"
 backup_dir="/root/new-api-backups"
 health_url="http://127.0.0.1:3000/api/status"
-ossutil_bin=""
 lock_file="/var/lock/tonkic-api-update.lock"
 
 timestamp=$(date +%Y%m%d-%H%M%S)
@@ -132,41 +130,72 @@ if ! flock -n 9; then
   exit 0
 fi
 
-ossutil_bin=$(command -v ossutil || true)
-[[ -n $ossutil_bin && -x $ossutil_bin ]] || {
-  log "ossutil is missing from PATH. Install and configure it before updating."
-  exit 1
-}
-
 case $(uname -m) in
-  x86_64|amd64) asset="new-api-linux-amd64" ;;
-  aarch64|arm64) asset="new-api-linux-arm64" ;;
+  x86_64|amd64) architecture="amd64" ;;
+  aarch64|arm64) architecture="arm64" ;;
   *) log "Unsupported architecture: $(uname -m)"; exit 1 ;;
 esac
 
 tmp_dir=$(mktemp -d)
-oss_base="oss://${oss_bucket}/${oss_prefix}"
-ossutil_args=(-e "$oss_endpoint")
-if [[ -n ${OSS_ACCESS_KEY_ID:-} && -n ${OSS_ACCESS_KEY_SECRET:-} ]]; then
-  ossutil_args+=(-i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET")
-fi
-
-log "Downloading $asset from $oss_base."
-"$ossutil_bin" "${ossutil_args[@]}" cp -f "$oss_base/$asset" "$tmp_dir/$asset"
-"$ossutil_bin" "${ossutil_args[@]}" cp -f "$oss_base/checksums-latest.txt" "$tmp_dir/checksums-latest.txt"
-"$ossutil_bin" "${ossutil_args[@]}" cp -f "$oss_base/version.txt" "$tmp_dir/version.txt"
-
-(
-  cd "$tmp_dir"
-  expected=$(awk -v file="$asset" '$2 == file { print $1 }' checksums-latest.txt)
-  [[ -n $expected ]] || { log "Checksum for $asset is missing."; exit 1; }
-  printf '%s  %s\n' "$expected" "$asset" | sha256sum --check --strict -
+curl_common=(
+  --fail
+  --silent
+  --show-error
+  --location
+  --retry 3
+  --retry-delay 2
+  --connect-timeout 15
 )
 
+log "Resolving the latest release from GitHub repository $github_repository."
+release_url=$(curl "${curl_common[@]}" --max-time 120 \
+  --output /dev/null --write-out '%{url_effective}' \
+  "$github_releases/latest")
+release_tag_prefix="$github_releases/tag/"
+if [[ $release_url != "$release_tag_prefix"* ]]; then
+  log "GitHub latest release redirected to an unexpected URL: $release_url"
+  exit 1
+fi
+target_version=${release_url#"$release_tag_prefix"}
+if [[ ! $target_version =~ ^[A-Za-z0-9._-]+$ ]]; then
+  log "GitHub returned an invalid release tag: $target_version"
+  exit 1
+fi
+
+if [[ $architecture == "arm64" ]]; then
+  asset="new-api-arm64-$target_version"
+else
+  asset="new-api-$target_version"
+fi
+download_base="$github_releases/download/$target_version"
+asset_url="$download_base/$asset"
+checksum_url="$download_base/checksums-linux.txt"
+
+log "Downloading $asset for $target_version directly from GitHub Releases."
+curl "${curl_common[@]}" --max-time 900 \
+  "$asset_url" -o "$tmp_dir/$asset"
+curl "${curl_common[@]}" --max-time 120 \
+  "$checksum_url" -o "$tmp_dir/checksums-linux.txt"
+
+expected=$(awk -v file="$asset" '
+  $2 == file { count += 1; checksum = $1 }
+  END { if (count == 1) print checksum }
+' "$tmp_dir/checksums-linux.txt")
+if [[ ! $expected =~ ^[0-9a-fA-F]{64}$ ]]; then
+  log "A unique valid checksum for $asset was not found."
+  exit 1
+fi
+actual=$(sha256sum "$tmp_dir/$asset" | awk '{print $1}')
+if [[ $actual != "$expected" ]]; then
+  log "Checksum verification failed for $asset."
+  exit 1
+fi
+log "Checksum verification succeeded for $asset."
+
 current_sha=$(sha256sum "$binary" | awk '{print $1}')
-target_sha=$(sha256sum "$tmp_dir/$asset" | awk '{print $1}')
-target_version=$(tr -d '\r\n' < "$tmp_dir/version.txt")
+target_sha=$actual
 if [[ $current_sha == "$target_sha" ]]; then
+  printf '%s\n' "$target_version" > "$app_dir/.release-version"
   log "Already running $target_version ($target_sha); nothing to update."
   exit 0
 fi
@@ -203,7 +232,7 @@ log "Starting new-api $target_version."
 start_app
 wait_for_health
 replacement_started=false
-printf '%s\n' "$target_version" > "$app_dir/.oss-version"
+printf '%s\n' "$target_version" > "$app_dir/.release-version"
 log "Update succeeded: $current_sha -> $target_sha ($target_version)."
 
 # Keep the five newest full archives and ten newest database/binary backups.

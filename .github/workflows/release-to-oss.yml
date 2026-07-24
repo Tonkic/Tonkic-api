@@ -67,7 +67,7 @@ jobs:
           test -n "$arm64_asset"
           cp "$amd64_asset" release-assets/new-api-linux-amd64
           cp "$arm64_asset" release-assets/new-api-linux-arm64
-          cp scripts/update-from-oss.sh release-assets/update.sh
+          cp scripts/update.sh release-assets/update.sh
           (
             cd release-assets
             sha256sum new-api-linux-amd64 new-api-linux-arm64 > checksums-latest.txt
