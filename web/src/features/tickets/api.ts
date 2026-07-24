@@ -47,7 +47,7 @@ export async function getTickets(
       keyword: params.admin ? params.keyword || undefined : undefined,
     },
   })
-  const page = unwrap(response.data)
+  const page = unwrap<TicketPage>(response.data)
   return {
     ...page,
     // Older servers (and some database drivers) may encode empty slices as
@@ -65,7 +65,7 @@ export async function getTicket(
     ? `/api/ticket/admin/${ticketId}`
     : `/api/ticket/${ticketId}`
   const response = await api.get(endpoint)
-  const ticket = unwrap(response.data)
+  const ticket = unwrap<TicketDetail>(response.data)
   return {
     ...ticket,
     messages: Array.isArray(ticket?.messages) ? ticket.messages : [],
