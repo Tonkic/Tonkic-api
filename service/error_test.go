@@ -150,6 +150,66 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	require.Contains(t, logBuffer.String(), body)
 }
 
+func TestSanitizeUserFacingRelayError(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		statusCode    int
+		message       string
+		wantSanitized bool
+	}{
+		{
+			name:          "hide exhausted authentication pool details",
+			statusCode:    http.StatusServiceUnavailable,
+			message:       "auth_unavailable: no auth available (providers=codex,openai-compatible-hub, model=gpt-5.6-sol)",
+			wantSanitized: true,
+		},
+		{
+			name:          "keep unrelated service unavailable error",
+			statusCode:    http.StatusServiceUnavailable,
+			message:       "upstream maintenance",
+			wantSanitized: false,
+		},
+		{
+			name:          "keep matching message with non-503 status",
+			statusCode:    http.StatusTooManyRequests,
+			message:       "auth_unavailable: no auth available",
+			wantSanitized: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := types.WithOpenAIError(types.OpenAIError{
+				Message: tc.message,
+				Type:    "server_error",
+				Code:    "auth_unavailable",
+			}, tc.statusCode)
+
+			result := SanitizeUserFacingRelayError(original)
+
+			require.Equal(t, tc.statusCode, result.StatusCode)
+			if !tc.wantSanitized {
+				require.Same(t, original, result)
+				require.Equal(t, tc.message, result.Error())
+				return
+			}
+
+			require.NotSame(t, original, result)
+			openAIError := result.ToOpenAIError()
+			require.Equal(t, authUnavailableUserMessage, openAIError.Message)
+			require.Equal(t, "server_error", openAIError.Type)
+			require.Equal(t, "service_temporarily_unavailable", openAIError.Code)
+			require.NotContains(t, openAIError.Message, "providers=")
+			require.NotContains(t, openAIError.Message, "auth_unavailable")
+		})
+	}
+}
+
 func withDebugEnabled(t *testing.T, enabled bool) {
 	t.Helper()
 

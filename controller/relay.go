@@ -75,6 +75,7 @@ func ResponsesWebSocket(c *gin.Context) {
 	if newAPIError := relay.ResponsesWebSocketHelper(c, ws); newAPIError != nil {
 		errorPreview := common.LocalLogPreview(newAPIError.Error())
 		logger.LogError(c, fmt.Sprintf("responses websocket relay error: %s", errorPreview))
+		newAPIError = service.SanitizeUserFacingRelayError(newAPIError)
 		newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 		helper.WssError(c, ws, newAPIError.ToOpenAIError())
 	}
@@ -104,6 +105,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			newAPIError = service.SanitizeUserFacingRelayError(newAPIError)
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:

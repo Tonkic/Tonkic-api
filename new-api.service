@@ -1,18 +1,20 @@
-# File path: /etc/systemd/system/new-api.service
-# sudo systemctl daemon-reload
-# sudo systemctl start new-api
-# sudo systemctl enable new-api
-# sudo systemctl status new-api
 [Unit]
-Description=One API Service
-After=network.target
+Description=Tonkic API service
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
-User=ubuntu  # 注意修改用户名
-WorkingDirectory=/path/to/new-api  # 注意修改路径
-ExecStart=/path/to/new-api/new-api --port 3000 --log-dir /path/to/new-api/logs  # 注意修改路径和端口号
+Type=simple
+User=root
+WorkingDirectory=/root/new-api
+EnvironmentFile=/root/new-api/.env
+ExecStart=/root/new-api/new-api
 Restart=always
 RestartSec=5
+TimeoutStopSec=45
+KillSignal=SIGTERM
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target

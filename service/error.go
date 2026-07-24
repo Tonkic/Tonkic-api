@@ -17,6 +17,8 @@ import (
 	"github.com/QuantumNous/new-api/types"
 )
 
+const authUnavailableUserMessage = "当前会话线路暂时不可用，请稍后重试；若持续失败，请新建对话以重新选择线路。"
+
 func MidjourneyErrorWrapper(code int, desc string) *dto.MidjourneyResponse {
 	return &dto.MidjourneyResponse{
 		Code:        code,
@@ -128,6 +130,26 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}
 	return
+}
+
+// SanitizeUserFacingRelayError replaces internal authentication-pool details
+// only after relay retries have been exhausted. The caller must log the
+// original error before invoking this function.
+func SanitizeUserFacingRelayError(newApiErr *types.NewAPIError) *types.NewAPIError {
+	if newApiErr == nil || newApiErr.StatusCode != http.StatusServiceUnavailable {
+		return newApiErr
+	}
+
+	message := strings.ToLower(newApiErr.Error())
+	if !strings.Contains(message, "auth_unavailable: no auth available") {
+		return newApiErr
+	}
+
+	return types.WithOpenAIError(types.OpenAIError{
+		Message: authUnavailableUserMessage,
+		Type:    "server_error",
+		Code:    "service_temporarily_unavailable",
+	}, newApiErr.StatusCode, types.ErrOptionWithSkipRetry())
 }
 
 func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) {

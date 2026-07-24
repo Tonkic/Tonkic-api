@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-# Tonkic API updater for the existing /root/new-api tmux deployment.
+# Tonkic API updater for the existing /root/new-api deployment.
 # Release metadata and binaries are downloaded directly from GitHub Releases.
 github_repository="Tonkic/Tonkic-api"
 github_releases="https://github.com/${github_repository}/releases"
@@ -10,6 +10,7 @@ app_dir="/root/new-api"
 binary="$app_dir/new-api"
 database="$app_dir/one-api.db"
 tmux_session="new-api"
+systemd_service="new-api.service"
 backup_dir="/root/new-api-backups"
 health_url="http://127.0.0.1:3000/api/status"
 lock_file="/var/lock/tonkic-api-update.lock"
@@ -20,52 +21,41 @@ database_backup=""
 binary_backup=""
 replacement_started=false
 rollback_running=false
+deployment_backend=""
 
 log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
-find_app_pids() {
-  local proc_exe resolved
-  for proc_exe in /proc/[0-9]*/exe; do
-    resolved=$(readlink -f "$proc_exe" 2>/dev/null || true)
-    if [[ $resolved == "$binary" ]]; then
-      printf '%s\n' "${proc_exe#/proc/}" | cut -d/ -f1
-    fi
-  done
+detect_deployment_backend() {
+  if command -v systemctl >/dev/null 2>&1 \
+    && systemctl cat "$systemd_service" >/dev/null 2>&1; then
+    deployment_backend="systemd"
+    return
+  fi
+  if command -v tmux >/dev/null 2>&1 \
+    && tmux has-session -t "$tmux_session" 2>/dev/null; then
+    deployment_backend="tmux"
+    return
+  fi
+  log "Neither $systemd_service nor tmux session '$tmux_session' is installed."
+  return 1
 }
 
 stop_app() {
-  local pids deadline
-  if tmux has-session -t "$tmux_session" 2>/dev/null; then
-    tmux send-keys -t "$tmux_session" C-c
-  fi
-
-  deadline=$((SECONDS + 30))
-  while [[ -n $(find_app_pids) && $SECONDS -lt $deadline ]]; do
-    sleep 1
-  done
-
-  pids=$(find_app_pids)
-  if [[ -n $pids ]]; then
-    log "Graceful shutdown timed out; sending SIGTERM to new-api only: $pids"
-    # shellcheck disable=SC2086
-    kill $pids
-    deadline=$((SECONDS + 10))
-    while [[ -n $(find_app_pids) && $SECONDS -lt $deadline ]]; do
-      sleep 1
-    done
-  fi
-
-  if [[ -n $(find_app_pids) ]]; then
-    log "new-api did not stop; refusing to replace the binary."
-    return 1
-  fi
-  tmux kill-session -t "$tmux_session" 2>/dev/null || true
+  case "$deployment_backend" in
+    systemd) systemctl stop "$systemd_service" ;;
+    tmux) tmux kill-session -t "$tmux_session" ;;
+    *) log "Unknown deployment backend: $deployment_backend"; return 1 ;;
+  esac
 }
 
 start_app() {
-  tmux new-session -d -s "$tmux_session" -c "$app_dir" "./new-api"
+  case "$deployment_backend" in
+    systemd) systemctl start "$systemd_service" ;;
+    tmux) tmux new-session -d -s "$tmux_session" -c "$app_dir" "./new-api" ;;
+    *) log "Unknown deployment backend: $deployment_backend"; return 1 ;;
+  esac
 }
 
 wait_for_health() {
@@ -114,7 +104,7 @@ if [[ $EUID -ne 0 ]]; then
   log "Run this script as root."
   exit 1
 fi
-for command_name in curl flock python3 sha256sum tar tmux; do
+for command_name in curl flock python3 sha256sum; do
   command -v "$command_name" >/dev/null 2>&1 || {
     log "Required command is unavailable: $command_name"
     exit 1
@@ -123,6 +113,8 @@ done
 [[ -x $binary ]] || { log "Binary is missing: $binary"; exit 1; }
 [[ -f $database ]] || { log "SQLite database is missing: $database"; exit 1; }
 [[ -f $app_dir/.env ]] || { log "Environment file is missing: $app_dir/.env"; exit 1; }
+detect_deployment_backend
+log "Detected deployment backend: $deployment_backend."
 
 exec 9>"$lock_file"
 if ! flock -n 9; then
@@ -201,9 +193,6 @@ if [[ $current_sha == "$target_sha" ]]; then
 fi
 
 install -d -m 0700 "$backup_dir"
-log "Creating a full pre-update archive."
-tar -C /root -czf "$backup_dir/new-api-backup-$timestamp.tar.gz" new-api
-
 database_backup="$backup_dir/one-api.db.backup-$timestamp-before-update"
 log "Creating a consistent SQLite backup at $database_backup."
 DATABASE_PATH="$database" BACKUP_PATH="$database_backup" python3 <<'PY'
@@ -222,7 +211,7 @@ PY
 binary_backup="$backup_dir/new-api.prev-$timestamp"
 cp -a "$binary" "$binary_backup"
 
-log "Stopping only the new-api process in tmux session '$tmux_session'."
+log "Stopping new-api through $deployment_backend."
 stop_app
 replacement_started=true
 install -m 0755 "$tmp_dir/$asset" "$binary.new"
@@ -235,8 +224,6 @@ replacement_started=false
 printf '%s\n' "$target_version" > "$app_dir/.release-version"
 log "Update succeeded: $current_sha -> $target_sha ($target_version)."
 
-# Keep the five newest full archives and ten newest database/binary backups.
-find "$backup_dir" -maxdepth 1 -type f -name 'new-api-backup-*.tar.gz' -printf '%T@ %p\n' \
-  | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -f --
+# Keep the ten newest pairs of database/binary backups.
 find "$backup_dir" -maxdepth 1 -type f \( -name 'one-api.db.backup-*-before-update' -o -name 'new-api.prev-*' \) -printf '%T@ %p\n' \
   | sort -nr | tail -n +21 | cut -d' ' -f2- | xargs -r rm -f --
