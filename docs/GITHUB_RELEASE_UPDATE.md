@@ -49,7 +49,9 @@ SHA-256 checksum, creates a consistent SQLite online backup, replaces only the
 binary, restarts the detected service, and checks the health endpoint. If
 startup fails, it restores the previous binary and database. Release binaries
 are statically linked, so a Docker container is not required to bridge host
-glibc versions.
+glibc versions. Before stopping a healthy service, the updater also executes
+the downloaded binary's `--version` command on the host and refuses the update
+if the binary is incompatible.
 
 It does not check out source code, rewrite `.env`, delete the database, or
 replace the application directory.

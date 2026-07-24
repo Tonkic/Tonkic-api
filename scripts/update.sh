@@ -184,6 +184,14 @@ if [[ $actual != "$expected" ]]; then
 fi
 log "Checksum verification succeeded for $asset."
 
+chmod 0755 "$tmp_dir/$asset"
+if ! downloaded_version=$("$tmp_dir/$asset" --version 2>&1); then
+  log "The downloaded binary cannot run on this host: $downloaded_version"
+  log "Refusing to stop the healthy service. Publish a statically linked Linux release first."
+  exit 1
+fi
+log "Downloaded binary passed the host compatibility check: $downloaded_version."
+
 current_sha=$(sha256sum "$binary" | awk '{print $1}')
 target_sha=$actual
 if [[ $current_sha == "$target_sha" ]]; then
