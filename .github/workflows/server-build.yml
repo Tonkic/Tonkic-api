@@ -1,0 +1,78 @@
+name: Server Build Artifact
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: server-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux-amd64:
+    name: Test and build Linux amd64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set version
+        shell: bash
+        run: |
+          version="server-${GITHUB_SHA::12}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "$version" > VERSION
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Check and build frontend
+        working-directory: web
+        env:
+          CI: ""
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run lint
+          DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="$VERSION" bun run build
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '>=1.25.1'
+          cache: true
+
+      - name: Test backend
+        run: go test ./controller ./service ./model
+
+      - name: Build static server binary
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$VERSION'" \
+            -o new-api-linux-amd64
+          file new-api-linux-amd64 | grep -F 'statically linked'
+          sha256sum new-api-linux-amd64 > checksums-linux.txt
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: new-api-linux-amd64-${{ github.sha }}
+          path: |
+            new-api-linux-amd64
+            checksums-linux.txt
+          if-no-files-found: error
+          retention-days: 7

@@ -72,6 +72,8 @@ export function TicketDetailDialog(props: TicketDetailDialogProps) {
     queryKey: ['ticket', props.ticketId, props.admin],
     queryFn: () => getTicket(props.ticketId as number, props.admin),
     enabled: props.ticketId != null,
+    // Render the dialog's local error state for ticket-specific failures.
+    meta: { suppressGlobalError: true },
   })
 
   useEffect(() => {
@@ -216,7 +218,7 @@ export function TicketDetailDialog(props: TicketDetailDialogProps) {
           )}
 
           <div className='space-y-3' aria-label={t('Conversation')}>
-            {ticket.messages.map((message) => (
+            {(ticket.messages ?? []).map((message) => (
               <div
                 key={message.id}
                 className={cn(

@@ -135,6 +135,29 @@ func TestListTicketsOnlyReturnsAuthenticatedUsersTickets(t *testing.T) {
 	assert.Equal(t, firstUser.Id, response.Data.Items[0].UserID)
 }
 
+func TestListTicketsReturnsEmptyArrayWhenUserHasNoTickets(t *testing.T) {
+	db := setupTicketControllerTestDB(t)
+	user := model.User{Username: "empty-ticket-user", Role: common.RoleCommonUser}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performTicketRequest(t, user.Id, http.MethodGet,
+		"/api/ticket?p=1&page_size=10", "", ListTickets)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int            `json:"total"`
+			Items []model.Ticket `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success)
+	assert.Equal(t, 0, response.Data.Total)
+	assert.NotNil(t, response.Data.Items)
+	assert.Empty(t, response.Data.Items)
+}
+
 func TestGetTicketDoesNotExposeAnotherUsersConversation(t *testing.T) {
 	db := setupTicketControllerTestDB(t)
 	owner := model.User{Username: "ticket-owner", Role: common.RoleCommonUser, AffCode: "ticket-owner"}
@@ -297,6 +320,27 @@ func TestAdminListTicketsFiltersStatusAndIncludesOwner(t *testing.T) {
 	assert.Equal(t, pending.Id, response.Data.Items[0].ID)
 	assert.Equal(t, owner.Username, response.Data.Items[0].Username)
 	assert.Equal(t, owner.DisplayName, response.Data.Items[0].DisplayName)
+}
+
+func TestAdminListTicketsReturnsEmptyArrayWhenNoTickets(t *testing.T) {
+	setupTicketControllerTestDB(t)
+
+	recorder := performTicketRequest(t, 999, http.MethodGet,
+		"/api/ticket/admin?p=1&page_size=10", "", AdminListTickets)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int            `json:"total"`
+			Items []model.Ticket `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success)
+	assert.Equal(t, 0, response.Data.Total)
+	assert.NotNil(t, response.Data.Items)
+	assert.Empty(t, response.Data.Items)
 }
 
 func TestAdminListTicketsRejectsInvalidFilters(t *testing.T) {
