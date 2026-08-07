@@ -47,7 +47,14 @@ export async function getTickets(
       keyword: params.admin ? params.keyword || undefined : undefined,
     },
   })
-  return unwrap(response.data)
+  const page = unwrap<TicketPage>(response.data)
+  return {
+    ...page,
+    // Older servers (and some database drivers) may encode empty slices as
+    // null. Normalize at the API boundary so the UI can always treat this as
+    // a collection.
+    items: Array.isArray(page?.items) ? page.items : [],
+  }
 }
 
 export async function getTicket(
@@ -58,7 +65,11 @@ export async function getTicket(
     ? `/api/ticket/admin/${ticketId}`
     : `/api/ticket/${ticketId}`
   const response = await api.get(endpoint)
-  return unwrap(response.data)
+  const ticket = unwrap<TicketDetail>(response.data)
+  return {
+    ...ticket,
+    messages: Array.isArray(ticket?.messages) ? ticket.messages : [],
+  }
 }
 
 export async function createTicket(

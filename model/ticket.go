@@ -82,7 +82,10 @@ func ListTicketsByUser(userID, status, offset, limit int) ([]Ticket, int64, erro
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var tickets []Ticket
+	// Keep an empty result JSON-serializable as [] rather than null. The
+	// dashboard treats these fields as collections and calls .length/.map on
+	// them, so a nil slice would turn a valid empty page into a client error.
+	tickets := make([]Ticket, 0)
 	if err := query.Order("updated_time DESC, id DESC").Offset(offset).Limit(limit).Find(&tickets).Error; err != nil {
 		return nil, 0, err
 	}
@@ -105,7 +108,8 @@ func ListAllTickets(filter TicketListFilter, offset, limit int) ([]TicketListIte
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	var tickets []TicketListItem
+	// See ListTicketsByUser: always return a non-nil collection for API pages.
+	tickets := make([]TicketListItem, 0)
 	if err := query.Select("tickets.*, users.username, users.display_name").
 		Order("tickets.updated_time DESC, tickets.id DESC").Offset(offset).Limit(limit).Scan(&tickets).Error; err != nil {
 		return nil, 0, err
@@ -118,7 +122,7 @@ func GetTicketByIDForUser(ticketID, userID int) (*Ticket, []TicketMessage, error
 	if err := DB.Where("id = ? AND user_id = ?", ticketID, userID).First(&ticket).Error; err != nil {
 		return nil, nil, err
 	}
-	var messages []TicketMessage
+	messages := make([]TicketMessage, 0)
 	if err := DB.Where("ticket_id = ?", ticketID).Order("created_time ASC, id ASC").Find(&messages).Error; err != nil {
 		return nil, nil, err
 	}
@@ -130,7 +134,7 @@ func GetTicketByID(ticketID int) (*Ticket, []TicketMessage, error) {
 	if err := DB.First(&ticket, ticketID).Error; err != nil {
 		return nil, nil, err
 	}
-	var messages []TicketMessage
+	messages := make([]TicketMessage, 0)
 	if err := DB.Where("ticket_id = ?", ticketID).Order("created_time ASC, id ASC").Find(&messages).Error; err != nil {
 		return nil, nil, err
 	}

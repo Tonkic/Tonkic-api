@@ -39,14 +39,19 @@ The updater is tailored to this deployment:
 - binary: `/root/new-api/new-api`;
 - SQLite database: `/root/new-api/one-api.db`;
 - environment: `/root/new-api/.env`;
-- tmux session: `new-api`;
+- preferred service: `new-api.service` under systemd;
+- legacy fallback: tmux session `new-api`;
 - health check: `http://127.0.0.1:3000/api/status`;
 - backups: `/root/new-api-backups`.
 
 The script automatically selects amd64 or arm64, verifies the published
-SHA-256 checksum, creates a full archive and a consistent SQLite online backup,
-replaces only the binary, restarts the tmux session, and checks the health
-endpoint. If startup fails, it restores the previous binary and database.
+SHA-256 checksum, creates a consistent SQLite online backup, replaces only the
+binary, restarts the detected service, and checks the health endpoint. If
+startup fails, it restores the previous binary and database. Release binaries
+are statically linked, so a Docker container is not required to bridge host
+glibc versions. Before stopping a healthy service, the updater also executes
+the downloaded binary's `--version` command on the host and refuses the update
+if the binary is incompatible.
 
 It does not check out source code, rewrite `.env`, delete the database, or
 replace the application directory.

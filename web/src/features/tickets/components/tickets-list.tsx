@@ -90,6 +90,9 @@ export function TicketsList(props: TicketsListProps) {
         priority,
         keyword: debouncedKeyword,
       }),
+    // An empty ticket list is a valid state. Keep a transient ticket API
+    // failure local to this page instead of sending the whole app to /500.
+    meta: { suppressGlobalError: true },
   })
   const totalPages = Math.max(
     1,
@@ -112,7 +115,7 @@ export function TicketsList(props: TicketsListProps) {
           : t('Failed to load tickets')}
       </div>
     )
-  } else if (query.data?.items.length === 0) {
+  } else if ((query.data?.items ?? []).length === 0) {
     content = (
       <div className='text-muted-foreground py-12 text-center text-sm'>
         {t('No tickets found')}
@@ -132,7 +135,7 @@ export function TicketsList(props: TicketsListProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {query.data?.items.map((ticket) => (
+          {(query.data?.items ?? []).map((ticket) => (
             <TableRow key={ticket.id}>
               <TableCell className='max-w-80'>
                 <div className='truncate font-medium'>{ticket.title}</div>
