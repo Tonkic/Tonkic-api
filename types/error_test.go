@@ -1,10 +1,11 @@
-package types
+package types_test
 
 import (
 	"errors"
 	"net/http"
 	"testing"
 
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,34 +14,34 @@ func TestNewAPIErrorSetMessageUpdatesRelayPayload(t *testing.T) {
 
 	testCases := []struct {
 		name  string
-		err   *NewAPIError
-		check func(*testing.T, *NewAPIError)
+		err   *types.NewAPIError
+		check func(*testing.T, *types.NewAPIError)
 	}{
 		{
 			name: "OpenAI payload",
-			err: WithOpenAIError(OpenAIError{
+			err: types.WithOpenAIError(types.OpenAIError{
 				Message: "internal error",
 				Type:    "server_error",
 				Code:    "server_error",
 			}, http.StatusServiceUnavailable),
-			check: func(t *testing.T, err *NewAPIError) {
+			check: func(t *testing.T, err *types.NewAPIError) {
 				require.Equal(t, "friendly error", err.ToOpenAIError().Message)
 			},
 		},
 		{
 			name: "Claude payload",
-			err: WithClaudeError(ClaudeError{
+			err: types.WithClaudeError(types.ClaudeError{
 				Message: "internal error",
 				Type:    "api_error",
 			}, http.StatusServiceUnavailable),
-			check: func(t *testing.T, err *NewAPIError) {
+			check: func(t *testing.T, err *types.NewAPIError) {
 				require.Equal(t, "friendly error", err.ToClaudeError().Message)
 			},
 		},
 		{
 			name: "local payload",
-			err:  NewError(errors.New("internal error"), ErrorCodeBadResponse),
-			check: func(t *testing.T, err *NewAPIError) {
+			err:  types.NewError(errors.New("internal error"), types.ErrorCodeBadResponse),
+			check: func(t *testing.T, err *types.NewAPIError) {
 				require.Equal(t, "friendly error", err.ToOpenAIError().Message)
 			},
 		},
