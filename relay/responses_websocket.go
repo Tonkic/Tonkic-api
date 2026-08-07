@@ -11,7 +11,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	appconstant "github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	appmodel "github.com/QuantumNous/new-api/model"
@@ -19,10 +18,11 @@ import (
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -623,10 +623,13 @@ func (s *responsesWSSession) applyTerminalResponseUsage(state *responsesWSCallSt
 	if response.Usage != nil {
 		service.ApplyResponsesUsage(state.usage, response.Usage)
 	}
-	if response.HasImageGenerationCall() {
-		s.c.Set("image_generation_call", true)
-		s.c.Set("image_generation_call_quality", response.GetQuality())
-		s.c.Set("image_generation_call_size", response.GetSize())
+	for _, output := range response.Output {
+		if output.Type == dto.ResponsesOutputTypeImageGenerationCall {
+			s.c.Set("image_generation_call", true)
+			s.c.Set("image_generation_call_quality", output.Quality)
+			s.c.Set("image_generation_call_size", output.Size)
+			break
+		}
 	}
 }
 
