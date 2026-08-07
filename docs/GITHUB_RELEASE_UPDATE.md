@@ -1,23 +1,18 @@
-# Tonkic API updates through GitHub Releases
+# Tonkic API updates through Alibaba Cloud OSS
 
-The server updater downloads release metadata, Linux binaries, and checksums
-directly from:
-
-```text
-https://github.com/Tonkic/Tonkic-api/releases
-```
-
-It does not require Alibaba Cloud OSS, `ossutil`, or OSS credentials.
+The server updater downloads the Linux binaries, checksums, and version
+metadata only from Alibaba Cloud OSS. It does not download update files from
+GitHub Releases.
 
 ## One-time server setup
 
-Download the stable `update.sh` asset from the latest GitHub Release:
+Configure `ossutil` for the RAM user `power-user-access`, then download the
+stable updater from the Shenzhen public endpoint:
 
 ```bash
 sudo mkdir -p /root/bin
-sudo curl -fL \
-  https://github.com/Tonkic/Tonkic-api/releases/latest/download/update.sh \
-  -o /root/bin/update-tonkic-api
+sudo ossutil -e oss-cn-shenzhen.aliyuncs.com \
+  cp oss://update-cpa-plus/tonkic-api/update.sh /root/bin/update-tonkic-api
 sudo chmod 700 /root/bin/update-tonkic-api
 ```
 
@@ -27,9 +22,8 @@ Run an update manually:
 sudo /root/bin/update-tonkic-api
 ```
 
-The updater follows GitHub's public `/releases/latest` redirect and downloads
-the matching assets directly. It does not use the GitHub API and therefore
-does not require an API token or consume API rate limits.
+The updater downloads the architecture-matched binary, checksum, and version
+metadata from `oss://update-cpa-plus/tonkic-api/releases/latest/`.
 
 ## Existing deployment layout
 
@@ -44,20 +38,19 @@ The updater is tailored to this deployment:
 - health check: `http://127.0.0.1:3000/api/status`;
 - backups: `/root/new-api-backups`.
 
-The script automatically selects amd64 or arm64, verifies the published
-SHA-256 checksum, creates a consistent SQLite online backup, replaces only the
-binary, restarts the detected service, and checks the health endpoint. If
-startup fails, it restores the previous binary and database. Release binaries
-are statically linked, so a Docker container is not required to bridge host
-glibc versions. Before stopping a healthy service, the updater also executes
-the downloaded binary's `--version` command on the host and refuses the update
-if the binary is incompatible.
+The script automatically selects amd64 or arm64, verifies the OSS SHA-256
+checksum, creates a consistent SQLite online backup, replaces only the binary,
+restarts the detected service, and checks the health endpoint. If startup
+fails, it restores the previous binary and database. Release binaries are
+statically linked, so a Docker container is not required to bridge host glibc
+versions. Before stopping a healthy service, the updater also executes the
+downloaded binary's `--version` command and refuses an incompatible binary.
 
-It does not check out source code, rewrite `.env`, delete the database, or
-replace the application directory.
+It does not check out source code, download from GitHub, rewrite `.env`, delete
+the database, or replace the application directory.
 
 ## Optional daily update
 
 ```bash
-(crontab -l 2>/dev/null; echo '0 4 * * * /root/bin/update-tonkic-api >> /root/new-api/logs/github-update.log 2>&1') | crontab -
+(crontab -l 2>/dev/null; echo '0 4 * * * /root/bin/update-tonkic-api >> /root/new-api/logs/oss-update.log 2>&1') | crontab -
 ```
