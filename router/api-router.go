@@ -57,6 +57,19 @@ func SetApiRouter(router *gin.Engine) {
 			ticketAdminRoute.POST("/:id/messages", controller.AdminReplyTicket)
 			ticketAdminRoute.PATCH("/:id", controller.AdminUpdateTicket)
 		}
+		compensationRoute := apiRouter.Group("/compensation")
+		compensationRoute.Use(middleware.UserAuth())
+		{
+			compensationRoute.GET("/:code", controller.GetCompensationCampaign)
+			compensationRoute.POST("/:code/claim", middleware.CriticalRateLimit(), controller.ClaimCompensationCampaign)
+		}
+		compensationAdminRoute := apiRouter.Group("/compensation/admin")
+		compensationAdminRoute.Use(middleware.AdminAuth())
+		{
+			compensationAdminRoute.GET("", controller.ListCompensationCampaigns)
+			compensationAdminRoute.POST("", controller.CreateCompensationCampaign)
+			compensationAdminRoute.PATCH("/:id", controller.UpdateCompensationCampaign)
+		}
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)

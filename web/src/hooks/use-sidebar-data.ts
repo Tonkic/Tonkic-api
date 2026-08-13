@@ -20,6 +20,7 @@ import {
   Activity,
   Box,
   CreditCard,
+  Gift,
   FileText,
   FlaskConical,
   Key,
@@ -144,6 +145,11 @@ export function useSidebarData(): SidebarData {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,
+          },
+          {
+            title: t('Compensation Campaigns'),
+            url: '/compensation-campaigns',
+            icon: Gift,
           },
           {
             title: t('Subscriptions'),
