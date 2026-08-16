@@ -187,6 +187,118 @@ type stubTaskAdaptor struct {
 	capturedReq *http.Request
 }
 
+type stubAdaptor struct {
+	Adaptor
+	baseURL string
+}
+
+func (s *stubAdaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	return s.baseURL + "/v1/chat/completions", nil
+}
+
+func (s *stubAdaptor) SetupRequestHeader(c *gin.Context, headers *http.Header, info *relaycommon.RelayInfo) error {
+	return nil
+}
+
+func TestRelayRequestsCancelUpstreamWhenClientDisconnects(t *testing.T) {
+	tests := []struct {
+		name string
+		send func(Adaptor, *gin.Context, *relaycommon.RelayInfo) (*http.Response, error)
+	}{
+		{
+			name: "JSON request",
+			send: func(adaptor Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (*http.Response, error) {
+				return DoApiRequest(adaptor, c, info, nil)
+			},
+		},
+		{
+			name: "form request",
+			send: func(adaptor Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (*http.Response, error) {
+				return DoFormRequest(adaptor, c, info, nil)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service.InitHttpClient()
+			requestStarted := make(chan struct{})
+			upstreamCanceled := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(requestStarted)
+				<-r.Context().Done()
+				close(upstreamCanceled)
+			}))
+			defer server.Close()
+
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			clientContext, cancelClient := context.WithCancel(context.Background())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(clientContext)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+			adaptor := &stubAdaptor{baseURL: server.URL}
+			requestDone := make(chan error, 1)
+			go func() {
+				_, err := test.send(adaptor, ctx, info)
+				requestDone <- err
+			}()
+
+			select {
+			case <-requestStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("upstream request did not start")
+			}
+			cancelClient()
+
+			select {
+			case <-upstreamCanceled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("upstream request was not canceled after the client disconnected")
+			}
+			require.Error(t, <-requestDone)
+		})
+	}
+}
+
+func TestDoTaskApiRequestCancelsUpstreamWhenClientDisconnects(t *testing.T) {
+	service.InitHttpClient()
+
+	requestStarted := make(chan struct{})
+	upstreamCanceled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-r.Context().Done()
+		close(upstreamCanceled)
+	}))
+	defer server.Close()
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	clientContext, cancelClient := context.WithCancel(context.Background())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil).WithContext(clientContext)
+
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	adaptor := &stubTaskAdaptor{baseURL: server.URL}
+	requestDone := make(chan error, 1)
+	go func() {
+		_, err := DoTaskApiRequest(adaptor, ctx, info, nil)
+		requestDone <- err
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream request did not start")
+	}
+	cancelClient()
+
+	select {
+	case <-upstreamCanceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream request was not canceled after the client disconnected")
+	}
+	require.Error(t, <-requestDone)
+}
+
 func (s *stubTaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	return s.baseURL + "/v1/video/generations", nil
 }
