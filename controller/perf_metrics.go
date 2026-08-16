@@ -6,6 +6,7 @@ import (
 	"time"
 
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,12 @@ import (
 )
 
 func GetPublicModelStatus(c *gin.Context) {
-	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	activeRatios := ratio_setting.GetGroupRatioCopy()
+	usableGroups := service.GetUserUsableGroups(c.GetString("user_group"))
+	activeGroups := lo.Filter(lo.Keys(activeRatios), func(group string, _ int) bool {
+		_, ok := usableGroups[group]
+		return ok
+	})
 	result, err := perfmetrics.QuerySummaryAll(24, activeGroups)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -30,7 +36,8 @@ func GetPublicModelStatus(c *gin.Context) {
 			groups = append(groups, gin.H{
 				"group": group.Group, "avg_latency_ms": group.AvgLatencyMs,
 				"success_rate": group.SuccessRate, "avg_tps": group.AvgTps,
-				"recent_success_rates": group.RecentSuccessRates, "request_count": group.RequestCount,
+				"recent_success_rates": group.RecentSuccessRates, "hourly_series": group.HourlySeries,
+				"request_count": group.RequestCount,
 			})
 		}
 		models = append(models, gin.H{
@@ -39,6 +46,7 @@ func GetPublicModelStatus(c *gin.Context) {
 			"success_rate":         item.SuccessRate,
 			"avg_tps":              item.AvgTps,
 			"recent_success_rates": item.RecentSuccessRates,
+			"hourly_series":        item.HourlySeries,
 			"request_count":        item.RequestCount,
 			"groups":               groups,
 		})

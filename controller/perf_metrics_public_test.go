@@ -39,6 +39,10 @@ func TestGetPublicModelStatusReturnsPerGroupAggregateWithoutChannels(t *testing.
 		ModelName: "example-model", Group: "vip", BucketTs: now - 60,
 		RequestCount: 5, SuccessCount: 5, TotalLatencyMs: 5000,
 	}).Error)
+	require.NoError(t, db.Create(&model.PerfMetric{
+		ModelName: "example-model", Group: "svip", BucketTs: now - 60,
+		RequestCount: 20, SuccessCount: 0, TotalLatencyMs: 40000,
+	}).Error)
 
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
@@ -54,7 +58,12 @@ func TestGetPublicModelStatusReturnsPerGroupAggregateWithoutChannels(t *testing.
 				ModelName    string  `json:"model_name"`
 				SuccessRate  float64 `json:"success_rate"`
 				RequestCount int64   `json:"request_count"`
-				Groups       []struct {
+				HourlySeries []struct {
+					Ts           int64    `json:"ts"`
+					SuccessRate  *float64 `json:"success_rate"`
+					RequestCount int64    `json:"request_count"`
+				} `json:"hourly_series"`
+				Groups []struct {
 					Group        string  `json:"group"`
 					SuccessRate  float64 `json:"success_rate"`
 					RequestCount int64   `json:"request_count"`
@@ -70,8 +79,17 @@ func TestGetPublicModelStatusReturnsPerGroupAggregateWithoutChannels(t *testing.
 	assert.Equal(t, "example-model", payload.Data.Models[0].ModelName)
 	assert.InDelta(t, 93.33, payload.Data.Models[0].SuccessRate, 0.01)
 	assert.Equal(t, int64(15), payload.Data.Models[0].RequestCount)
+	require.Len(t, payload.Data.Models[0].HourlySeries, 24)
+	for index := 1; index < len(payload.Data.Models[0].HourlySeries); index++ {
+		assert.Equal(t, int64(3600), payload.Data.Models[0].HourlySeries[index].Ts-payload.Data.Models[0].HourlySeries[index-1].Ts)
+	}
+	latest := payload.Data.Models[0].HourlySeries[len(payload.Data.Models[0].HourlySeries)-1]
+	assert.Equal(t, int64(15), latest.RequestCount)
+	require.NotNil(t, latest.SuccessRate)
+	assert.InDelta(t, 93.33, *latest.SuccessRate, 0.01)
 	require.Len(t, payload.Data.Models[0].Groups, 2)
 	assert.ElementsMatch(t, []string{"default", "vip"}, []string{payload.Data.Models[0].Groups[0].Group, payload.Data.Models[0].Groups[1].Group})
+	assert.NotContains(t, response.Body.String(), `"svip"`)
 	assert.NotContains(t, response.Body.String(), `"channel_id"`)
 	assert.NotContains(t, response.Body.String(), `"channel_name"`)
 }

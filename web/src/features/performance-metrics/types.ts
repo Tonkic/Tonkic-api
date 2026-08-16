@@ -72,7 +72,14 @@ export type PublicModelStatusData = {
 
 export type PublicModelStatus = Omit<PerfModelSummary, 'request_count'> & {
   request_count: number
+  hourly_series: PublicStatusPoint[]
   groups: PublicGroupStatus[]
+}
+
+export type PublicStatusPoint = {
+  ts: number
+  success_rate: number | null
+  request_count: number
 }
 
 export type PublicGroupStatus = {
@@ -81,5 +88,6 @@ export type PublicGroupStatus = {
   success_rate: number
   avg_tps: number
   recent_success_rates?: number[]
+  hourly_series: PublicStatusPoint[]
   request_count: number
 }

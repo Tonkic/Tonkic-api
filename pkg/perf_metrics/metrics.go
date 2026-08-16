@@ -200,6 +200,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 				SuccessRate:        math.Round(groupSuccessRate*100) / 100,
 				AvgTps:             math.Round(groupAvgTps*100) / 100,
 				RecentSuccessRates: recentSuccessRates(groupBuckets[name][group], 3),
+				HourlySeries:       hourlyStatusSeries(groupBuckets[name][group], hours, endTs),
 				RequestCount:       groupTotal.requestCount,
 			})
 		}
@@ -210,6 +211,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
+			HourlySeries:       hourlyStatusSeries(modelBuckets[name], hours, endTs),
 			RequestCount:       total.requestCount,
 			Groups:             groups,
 		})
@@ -219,6 +221,34 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	})
 
 	return SummaryAllResult{Models: models}, nil
+}
+
+func hourlyStatusSeries(buckets map[int64]counters, hours int, endTs int64) []StatusPoint {
+	endHour := endTs - endTs%3600
+	startHour := endHour - int64(hours-1)*3600
+	hourBuckets := make(map[int64]counters, len(buckets))
+	for ts, value := range buckets {
+		hourTs := ts - ts%3600
+		if hourTs < startHour || hourTs > endHour {
+			continue
+		}
+		current := hourBuckets[hourTs]
+		current.requestCount += value.requestCount
+		current.successCount += value.successCount
+		hourBuckets[hourTs] = current
+	}
+
+	series := make([]StatusPoint, 0, hours)
+	for ts := startHour; ts <= endHour; ts += 3600 {
+		value := hourBuckets[ts]
+		point := StatusPoint{Ts: ts, RequestCount: value.requestCount}
+		if value.requestCount > 0 {
+			rate := math.Round(successRate(value)*100) / 100
+			point.SuccessRate = &rate
+		}
+		series = append(series, point)
+	}
+	return series
 }
 
 func mergeGroupTotals(totals map[string]map[string]counters, modelName string, group string, value counters) {
