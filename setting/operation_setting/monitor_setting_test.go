@@ -7,6 +7,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMonitorSettingDefaultsEnableFifteenMinuteChannelTests(t *testing.T) {
+	t.Setenv("CHANNEL_TEST_ENABLED", "")
+	t.Setenv("CHANNEL_TEST_FREQUENCY", "")
+
+	assert.True(t, monitorSetting.AutoTestChannelEnabled)
+	assert.Equal(t, float64(15), monitorSetting.AutoTestChannelMinutes)
+}
+
 func TestGetMonitorSetting_ChannelTestEnabledEnvOverridesEnabledConfig(t *testing.T) {
 	orig := monitorSetting
 	t.Cleanup(func() { monitorSetting = orig })

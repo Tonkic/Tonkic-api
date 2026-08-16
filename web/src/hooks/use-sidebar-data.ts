@@ -83,6 +83,11 @@ export function useSidebarData(): SidebarData {
             icon: LayoutDashboard,
           },
           {
+            title: t('Service Status'),
+            url: '/status',
+            icon: Radio,
+          },
+          {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -50,6 +51,27 @@ func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) s
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
 	return normalized
+}
+
+func selectedChannelTestModel(channel *model.Channel, requested string) string {
+	testModel := strings.TrimSpace(requested)
+	if testModel != "" {
+		return testModel
+	}
+	if channel.TestModel != nil {
+		testModel = strings.TrimSpace(*channel.TestModel)
+		if testModel != "" {
+			return testModel
+		}
+	}
+	models := channel.GetModels()
+	if len(models) > 0 {
+		testModel = strings.TrimSpace(models[0])
+	}
+	if testModel == "" {
+		return "gpt-4o-mini"
+	}
+	return testModel
 }
 
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
@@ -92,20 +114,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	testModel = strings.TrimSpace(testModel)
-	if testModel == "" {
-		if channel.TestModel != nil && *channel.TestModel != "" {
-			testModel = strings.TrimSpace(*channel.TestModel)
-		} else {
-			models := channel.GetModels()
-			if len(models) > 0 {
-				testModel = strings.TrimSpace(models[0])
-			}
-			if testModel == "" {
-				testModel = "gpt-4o-mini"
-			}
-		}
-	}
+	testModel = selectedChannelTestModel(channel, testModel)
 
 	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
 
@@ -931,8 +940,9 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 			continue
 		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+		testModel := selectedChannelTestModel(channel, "")
 		tik := time.Now()
-		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		result := testChannel(ctx, channel, testUserID, testModel, "", shouldUseStreamForAutomaticChannelTest(channel))
 		tok := time.Now()
 		milliseconds := tok.Sub(tik).Milliseconds()
 		if ctx != nil && ctx.Err() != nil {
@@ -954,6 +964,18 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 				err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
 				newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
 				shouldBanChannel = true
+			}
+		}
+
+		if result.context != nil {
+			probeSucceeded := result.localErr == nil && newAPIError == nil
+			for _, group := range channel.GetGroups() {
+				if group == "" {
+					continue
+				}
+				perfmetrics.Record(perfmetrics.Sample{
+					Model: testModel, Group: group, LatencyMs: milliseconds, Success: probeSucceeded,
+				})
 			}
 		}
 

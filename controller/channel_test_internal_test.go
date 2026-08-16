@@ -321,6 +321,19 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 	require.Equal(t, 2, selected[1].Id)
 }
 
+func TestSelectedChannelTestModelUsesConfiguredModelBeforeChannelModels(t *testing.T) {
+	configured := " configured-model "
+	channel := &model.Channel{Models: "first-model,second-model", TestModel: &configured}
+
+	require.Equal(t, "requested-model", selectedChannelTestModel(channel, " requested-model "))
+	require.Equal(t, "configured-model", selectedChannelTestModel(channel, ""))
+
+	configured = " "
+	require.Equal(t, "first-model", selectedChannelTestModel(channel, ""))
+	channel.Models = ""
+	require.Equal(t, "gpt-4o-mini", selectedChannelTestModel(channel, ""))
+}
+
 func TestSelectChannelsForAutomaticTestAutoBanOnlyUsesEligibleChannels(t *testing.T) {
 	autoBanEnabled := 1
 	autoBanDisabled := 0

@@ -53,6 +53,7 @@ jobs:
           else
             TAG=${GITHUB_REF#refs/tags/}
           fi
+          bash scripts/validate-release-version.sh "$TAG"
           echo "TAG=${TAG}" >> $GITHUB_ENV
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "${TAG}" > VERSION
