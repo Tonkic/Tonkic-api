@@ -16,19 +16,16 @@ describe('model hourly status row', () => {
     const hourlySeries = Array.from({ length: 24 }, (_, index) => ({
       ts: 1_800_000_000 + index * 3600,
       success_rate: index === 0 ? null : 100,
-      request_count: index === 0 ? 0 : 1,
     }))
 
-    const { container } = render(
+    render(
       <ModelStatusRow
         model={{
           model_name: 'example-model',
           avg_latency_ms: 250,
           success_rate: 100,
           avg_tps: 10,
-          request_count: 23,
           hourly_series: hourlySeries,
-          groups: [],
         }}
       />
     )
@@ -42,6 +39,10 @@ describe('model hourly status row', () => {
       'title',
       expect.stringContaining('No data')
     )
-    expect(container).toHaveTextContent('23 requests in the last 24 hours')
+    expect(screen.queryByText(/23 requests/)).not.toBeInTheDocument()
+    expect(cells[1]).not.toHaveAttribute(
+      'title',
+      expect.stringContaining('requests')
+    )
   })
 })

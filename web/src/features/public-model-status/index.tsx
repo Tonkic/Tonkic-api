@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Activity, AlertTriangle, CircleCheck, RefreshCw } from 'lucide-react'
-import { memo, useMemo } from 'react'
+import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -66,11 +66,6 @@ export const ModelStatusRow = memo(function ModelStatusRow(props: {
     <div className='grid min-w-[920px] grid-cols-[minmax(12rem,1fr)_6rem_7rem_minmax(30rem,2fr)] items-center gap-4 border-b px-4 py-3 last:border-b-0'>
       <div className='min-w-0'>
         <div className='truncate font-medium'>{props.model.model_name}</div>
-        <div className='text-muted-foreground text-xs'>
-          {t('{{count}} requests in the last 24 hours', {
-            count: props.model.request_count,
-          })}
-        </div>
       </div>
       <div
         className={cn(
@@ -96,7 +91,7 @@ export const ModelStatusRow = memo(function ModelStatusRow(props: {
           const title =
             point.success_rate === null
               ? `${hour} · ${t('No data')}`
-              : `${hour} · ${point.success_rate.toFixed(2)}% · ${t('{{count}} requests', { count: point.request_count })}`
+              : `${hour} · ${point.success_rate.toFixed(2)}%`
           return (
             <span
               key={point.ts}
@@ -126,20 +121,7 @@ export function PublicModelStatus() {
     staleTime: 30_000,
     retry: false,
   })
-  const overall = useMemo(() => {
-    const models = query.data?.data.models ?? []
-    const requests = models.reduce(
-      (total, model) => total + model.request_count,
-      0
-    )
-    if (requests === 0) return Number.NaN
-    return (
-      models.reduce(
-        (total, model) => total + model.success_rate * model.request_count,
-        0
-      ) / requests
-    )
-  }, [query.data?.data.models])
+  const overall = query.data?.data.overall_success_rate ?? Number.NaN
   const models = query.data?.data.models ?? []
   const level = getSuccessRateLevel(overall)
   const isHealthy = level === 'excellent' || level === 'good'

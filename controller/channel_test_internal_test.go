@@ -334,6 +334,20 @@ func TestSelectedChannelTestModelUsesConfiguredModelBeforeChannelModels(t *testi
 	require.Equal(t, "gpt-4o-mini", selectedChannelTestModel(channel, ""))
 }
 
+func TestAutomaticChannelTestModelsIncludesEveryDistinctConfiguredModel(t *testing.T) {
+	configured := " preferred-model "
+	channel := &model.Channel{
+		Models:    "first-model, second-model,first-model,,preferred-model",
+		TestModel: &configured,
+	}
+
+	assert.Equal(t, []string{"preferred-model", "first-model", "second-model"}, automaticChannelTestModels(channel))
+}
+
+func TestAutomaticChannelTestModelsFallsBackWhenChannelHasNoModels(t *testing.T) {
+	assert.Equal(t, []string{"gpt-4o-mini"}, automaticChannelTestModels(&model.Channel{}))
+}
+
 func TestSelectChannelsForAutomaticTestAutoBanOnlyUsesEligibleChannels(t *testing.T) {
 	autoBanEnabled := 1
 	autoBanDisabled := 0

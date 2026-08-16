@@ -74,6 +74,32 @@ func selectedChannelTestModel(channel *model.Channel, requested string) string {
 	return testModel
 }
 
+func automaticChannelTestModels(channel *model.Channel) []string {
+	models := make([]string, 0, len(channel.GetModels())+1)
+	seen := make(map[string]struct{}, cap(models))
+	addModel := func(raw string) {
+		modelName := strings.TrimSpace(raw)
+		if modelName == "" {
+			return
+		}
+		if _, ok := seen[modelName]; ok {
+			return
+		}
+		seen[modelName] = struct{}{}
+		models = append(models, modelName)
+	}
+	if channel.TestModel != nil {
+		addModel(*channel.TestModel)
+	}
+	for _, modelName := range channel.GetModels() {
+		addModel(modelName)
+	}
+	if len(models) == 0 {
+		models = append(models, "gpt-4o-mini")
+	}
+	return models
+}
+
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	if c != nil {
 		if userID := c.GetInt("id"); userID > 0 {
@@ -919,8 +945,8 @@ type channelTestSummary struct {
 
 // performChannelTests runs the channel test loop synchronously, honoring ctx
 // cancellation so a system-task runner that loses its lease stops promptly. When
-// report is non-nil it is called after each channel with (processed, total) so
-// the system task can surface progress.
+// report is non-nil it is called after each model probe with (processed, total)
+// so the system task can surface progress.
 func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int)) channelTestSummary {
 	summary := channelTestSummary{}
 	var disableThreshold = int64(common.ChannelDisableThreshold * 1000)
@@ -928,19 +954,34 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		disableThreshold = 10000000 // a impossible value
 	}
 
-	total := len(channels)
-	for index, channel := range channels {
+	type testTarget struct {
+		channel      *model.Channel
+		model        string
+		primaryProbe bool
+	}
+	targets := make([]testTarget, 0, len(channels))
+	for _, channel := range channels {
+		for index, modelName := range automaticChannelTestModels(channel) {
+			targets = append(targets, testTarget{
+				channel: channel, model: modelName, primaryProbe: index == 0,
+			})
+		}
+	}
+
+	total := len(targets)
+	for index, target := range targets {
 		if ctx != nil && ctx.Err() != nil {
 			break
 		}
 		if report != nil {
 			report(index, total) // channels completed before this one
 		}
+		channel := target.channel
 		if channel.Status == common.ChannelStatusManuallyDisabled {
 			continue
 		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-		testModel := selectedChannelTestModel(channel, "")
+		testModel := target.model
 		tik := time.Now()
 		result := testChannel(ctx, channel, testUserID, testModel, "", shouldUseStreamForAutomaticChannelTest(channel))
 		tok := time.Now()
@@ -979,25 +1020,27 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 			}
 		}
 
-		if newAPIError == nil {
+		if result.localErr == nil && newAPIError == nil {
 			summary.Succeeded++
 		} else {
 			summary.Failed++
 		}
 
 		// disable channel
-		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+		if target.primaryProbe && allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
 			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 			summary.Disabled++
 		}
 
 		// enable channel
-		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+		if target.primaryProbe && result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
 			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
 			summary.Enabled++
 		}
 
-		channel.UpdateResponseTime(milliseconds)
+		if target.primaryProbe {
+			channel.UpdateResponseTime(milliseconds)
+		}
 		if common.RequestInterval > 0 {
 			if ctx == nil {
 				time.Sleep(common.RequestInterval)

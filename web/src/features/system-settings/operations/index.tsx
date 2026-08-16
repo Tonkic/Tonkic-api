@@ -56,6 +56,9 @@ const defaultOperationsSettings: OperationsSettings = {
   'perf_metrics_setting.flush_interval': 5,
   'perf_metrics_setting.bucket_time': 'hour',
   'perf_metrics_setting.retention_days': 0,
+  'monitor_setting.auto_test_channel_enabled': true,
+  'monitor_setting.auto_test_channel_minutes': 15,
+  'monitor_setting.channel_test_mode': 'scheduled_all',
 }
 
 export function OperationsSettings() {
