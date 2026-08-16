@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -10,6 +11,48 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
+
+func GetPublicModelStatus(c *gin.Context) {
+	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	result, err := perfmetrics.QuerySummaryAll(24, activeGroups)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Unable to load model status",
+		})
+		return
+	}
+
+	models := make([]gin.H, 0, len(result.Models))
+	for _, item := range result.Models {
+		groups := make([]gin.H, 0, len(item.Groups))
+		for _, group := range item.Groups {
+			groups = append(groups, gin.H{
+				"group": group.Group, "avg_latency_ms": group.AvgLatencyMs,
+				"success_rate": group.SuccessRate, "avg_tps": group.AvgTps,
+				"recent_success_rates": group.RecentSuccessRates, "request_count": group.RequestCount,
+			})
+		}
+		models = append(models, gin.H{
+			"model_name":           item.ModelName,
+			"avg_latency_ms":       item.AvgLatencyMs,
+			"success_rate":         item.SuccessRate,
+			"avg_tps":              item.AvgTps,
+			"recent_success_rates": item.RecentSuccessRates,
+			"request_count":        item.RequestCount,
+			"groups":               groups,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"generated_at": time.Now().Unix(),
+			"window_hours": 24,
+			"models":       models,
+		},
+	})
+}
 
 func GetPerfMetricsSummary(c *gin.Context) {
 	hours := 24

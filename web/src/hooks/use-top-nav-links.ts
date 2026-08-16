@@ -95,6 +95,10 @@ export function useTopNavLinks(): TopNavLink[] {
     }
   }
 
+  if (modules?.status !== false) {
+    links.push({ title: t('Service Status'), href: '/status' })
+  }
+
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })

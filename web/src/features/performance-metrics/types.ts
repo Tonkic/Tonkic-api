@@ -59,3 +59,27 @@ export type PerfSummaryAllData = {
     models: PerfModelSummary[]
   }
 }
+
+export type PublicModelStatusData = {
+  success: boolean
+  message?: string
+  data: {
+    generated_at: number
+    window_hours: number
+    models: PublicModelStatus[]
+  }
+}
+
+export type PublicModelStatus = Omit<PerfModelSummary, 'request_count'> & {
+  request_count: number
+  groups: PublicGroupStatus[]
+}
+
+export type PublicGroupStatus = {
+  group: string
+  avg_latency_ms: number
+  success_rate: number
+  avg_tps: number
+  recent_success_rates?: number[]
+  request_count: number
+}

@@ -18,7 +18,16 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import type { PerformanceMetricsData, PerfSummaryAllData } from './types'
+import type {
+  PerformanceMetricsData,
+  PerfSummaryAllData,
+  PublicModelStatusData,
+} from './types'
+
+export async function getPublicModelStatus(): Promise<PublicModelStatusData> {
+  const res = await api.get<PublicModelStatusData>('/api/status/models')
+  return res.data
+}
 
 export async function getPerfMetricsSummary(
   hours = 24
