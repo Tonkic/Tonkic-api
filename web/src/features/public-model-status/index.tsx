@@ -40,6 +40,7 @@ import {
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
 import type { PublicModelStatus as PublicModelStatusItem } from '@/features/performance-metrics/types'
+import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 
 const SKELETON_IDS = ['one', 'two', 'three', 'four', 'five', 'six']
@@ -214,7 +215,7 @@ export function PublicModelStatus() {
             </div>
             <div className='text-muted-foreground text-sm'>
               {t('Updated {{time}}', {
-                time: new Intl.DateTimeFormat(i18n.language, {
+                time: new Intl.DateTimeFormat(toIntlLocale(i18n.language), {
                   dateStyle: 'medium',
                   timeStyle: 'short',
                 }).format(
