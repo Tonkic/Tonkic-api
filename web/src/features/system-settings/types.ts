@@ -365,6 +365,7 @@ export type OperationsSettings = {
     | 'scheduled_all'
     | 'auto_ban_only'
     | 'passive_recovery'
+  'monitor_setting.excluded_auto_test_models': string
 }
 
 export type SecuritySettings = {

@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -98,6 +99,29 @@ func automaticChannelTestModels(channel *model.Channel) []string {
 		models = append(models, "gpt-4o-mini")
 	}
 	return models
+}
+
+func excludeAutomaticChannelTestModels(models []string, patterns []string) []string {
+	filtered := make([]string, 0, len(models))
+	for _, modelName := range models {
+		excluded := false
+		for _, rawPattern := range patterns {
+			pattern := strings.TrimSpace(rawPattern)
+			if pattern == "" {
+				continue
+			}
+			expression := "^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, ".*") + "$"
+			matched, err := regexp.MatchString(expression, modelName)
+			if err == nil && matched {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			filtered = append(filtered, modelName)
+		}
+	}
+	return filtered
 }
 
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
@@ -947,7 +971,7 @@ type channelTestSummary struct {
 // cancellation so a system-task runner that loses its lease stops promptly. When
 // report is non-nil it is called after each model probe with (processed, total)
 // so the system task can surface progress.
-func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int)) channelTestSummary {
+func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, excludedModels []string, report func(processed, total int)) channelTestSummary {
 	summary := channelTestSummary{}
 	var disableThreshold = int64(common.ChannelDisableThreshold * 1000)
 	if disableThreshold == 0 {
@@ -961,7 +985,8 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 	}
 	targets := make([]testTarget, 0, len(channels))
 	for _, channel := range channels {
-		for index, modelName := range automaticChannelTestModels(channel) {
+		models := excludeAutomaticChannelTestModels(automaticChannelTestModels(channel), excludedModels)
+		for index, modelName := range models {
 			targets = append(targets, testTarget{
 				channel: channel, model: modelName, primaryProbe: index == 0,
 			})
@@ -1076,12 +1101,17 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	if err != nil {
 		return channelTestSummary{}, err
 	}
-	if strings.TrimSpace(mode) == "" {
+	isScheduledRun := strings.TrimSpace(mode) == ""
+	if isScheduledRun {
 		mode = operation_setting.GetMonitorSetting().ChannelTestMode
 	}
 	selected := selectChannelsForAutomaticTest(channels, mode)
 	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
-	summary := performChannelTests(ctx, selected, testUserID, allowDisable, report)
+	var excludedModels []string
+	if isScheduledRun {
+		excludedModels = operation_setting.GetMonitorSetting().ExcludedAutoTestModels
+	}
+	summary := performChannelTests(ctx, selected, testUserID, allowDisable, excludedModels, report)
 	if notify && (ctx == nil || ctx.Err() == nil) {
 		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
 	}

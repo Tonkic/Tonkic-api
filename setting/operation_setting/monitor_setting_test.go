@@ -13,6 +13,7 @@ func TestMonitorSettingDefaultsEnableFifteenMinuteChannelTests(t *testing.T) {
 
 	assert.True(t, monitorSetting.AutoTestChannelEnabled)
 	assert.Equal(t, float64(15), monitorSetting.AutoTestChannelMinutes)
+	assert.Contains(t, monitorSetting.ExcludedAutoTestModels, "gpt-image-*")
 }
 
 func TestGetMonitorSetting_ChannelTestEnabledEnvOverridesEnabledConfig(t *testing.T) {

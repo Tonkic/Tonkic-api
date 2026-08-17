@@ -61,6 +61,9 @@ const OPERATIONS_SECTIONS = [
             settings['monitor_setting.auto_test_channel_minutes'] ?? 15,
           'monitor_setting.channel_test_mode':
             settings['monitor_setting.channel_test_mode'] ?? 'scheduled_all',
+          'monitor_setting.excluded_auto_test_models':
+            settings['monitor_setting.excluded_auto_test_models'] ??
+            '["gpt-image-*","dall-e-*","imagen-*","flux-*","chatgpt-image-latest"]',
         }}
       />
     ),

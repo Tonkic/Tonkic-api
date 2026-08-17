@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   Form,
   FormControl,
@@ -44,6 +45,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 
 import {
+  SettingsControlGroup,
   SettingsForm,
   SettingsSwitchContent,
   SettingsSwitchItem,
@@ -59,6 +61,23 @@ const numericString = z.string().refine((value) => {
   if (!trimmed) return true
   return !Number.isNaN(Number(trimmed)) && Number(trimmed) >= 0
 }, 'Enter a non-negative number or leave empty')
+
+const modelPatternList = z.string().superRefine((value, ctx) => {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (
+      !Array.isArray(parsed) ||
+      parsed.some((item) => typeof item !== 'string')
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Enter a JSON array of model patterns',
+      })
+    }
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'Enter valid JSON' })
+  }
+})
 
 const monitoringSchema = z.object({
   QuotaRemindThreshold: numericString,
@@ -79,6 +98,7 @@ const monitoringSchema = z.object({
       'auto_ban_only',
       'passive_recovery',
     ]),
+    excluded_auto_test_models: modelPatternList,
   }),
 })
 
@@ -97,6 +117,7 @@ type FlatMonitoringDefaults = {
     | 'scheduled_all'
     | 'auto_ban_only'
     | 'passive_recovery'
+  'monitor_setting.excluded_auto_test_models': string
 }
 
 type MonitoringSettingsSectionProps = {
@@ -119,6 +140,8 @@ const buildFormDefaults = (
     auto_test_channel_minutes:
       defaults['monitor_setting.auto_test_channel_minutes'],
     channel_test_mode: defaults['monitor_setting.channel_test_mode'],
+    excluded_auto_test_models:
+      defaults['monitor_setting.excluded_auto_test_models'],
   },
 })
 
@@ -139,6 +162,8 @@ const normalizeDefaults = (
     defaults['monitor_setting.auto_test_channel_minutes'],
   'monitor_setting.channel_test_mode':
     defaults['monitor_setting.channel_test_mode'],
+  'monitor_setting.excluded_auto_test_models':
+    defaults['monitor_setting.excluded_auto_test_models'],
 })
 
 const normalizeFormValues = (
@@ -156,6 +181,8 @@ const normalizeFormValues = (
   'monitor_setting.auto_test_channel_minutes':
     values.monitor_setting.auto_test_channel_minutes,
   'monitor_setting.channel_test_mode': values.monitor_setting.channel_test_mode,
+  'monitor_setting.excluded_auto_test_models':
+    values.monitor_setting.excluded_auto_test_models,
 })
 
 export function MonitoringSettingsSection({
@@ -249,218 +276,253 @@ export function MonitoringSettingsSection({
             )}
           />
 
-          <div>
-            <h4 className='font-medium'>{t('Model performance metrics')}</h4>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t(
-                'Collect relay latency and success-rate metrics for the model square and service status page.'
-              )}
-            </p>
-          </div>
-
-          <div>
-            <h4 className='font-medium'>{t('Channel health checks')}</h4>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t(
-                'Scheduled channel tests feed availability data into the same model performance metrics.'
-              )}
-            </p>
-          </div>
-
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
-            <FormField
-              control={form.control}
-              name='monitor_setting.auto_test_channel_enabled'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Scheduled channel tests')}</FormLabel>
+          <SettingsControlGroup>
+            <div>
+              <h4 className='font-medium'>{t('Model performance metrics')}</h4>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t(
+                  'Collect relay latency and success-rate metrics for the model square and service status page.'
+                )}
+              </p>
+            </div>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>
+              <FormField
+                control={form.control}
+                name='perf_metrics_setting.enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>
+                        {t('Enable model performance metrics')}
+                      </FormLabel>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='perf_metrics_setting.flush_interval'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Flush interval (minutes)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                        disabled={!perfMetricsEnabled}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='perf_metrics_setting.bucket_time'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Aggregation bucket')}</FormLabel>
+                    <Select
+                      items={[
+                        { value: 'minute', label: t('1 minute') },
+                        { value: '5min', label: t('5 minutes') },
+                        { value: 'hour', label: t('1 hour') },
+                      ]}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={!perfMetricsEnabled}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='minute'>
+                            {t('1 minute')}
+                          </SelectItem>
+                          <SelectItem value='5min'>{t('5 minutes')}</SelectItem>
+                          <SelectItem value='hour'>{t('1 hour')}</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='perf_metrics_setting.retention_days'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Retention days')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                        disabled={!perfMetricsEnabled}
+                      />
+                    </FormControl>
                     <FormDescription>
-                      {t('Automatically probe all channels in the background')}
+                      {t('0 means data is kept permanently')}
                     </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='monitor_setting.channel_test_mode'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Channel test mode')}</FormLabel>
-                  <Select
-                    items={[
-                      {
-                        value: 'scheduled_all',
-                        label: t('Actively check all channels'),
-                      },
-                      {
-                        value: 'auto_ban_only',
-                        label: t(
-                          'Actively check auto-disable-enabled channels'
-                        ),
-                      },
-                      {
-                        value: 'passive_recovery',
-                        label: t('Check channels awaiting recovery only'),
-                      },
-                    ]}
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={!channelTestsEnabled}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='scheduled_all'>
-                          {t('Actively check all channels')}
-                        </SelectItem>
-                        <SelectItem value='auto_ban_only'>
-                          {t('Actively check auto-disable-enabled channels')}
-                        </SelectItem>
-                        <SelectItem value='passive_recovery'>
-                          {t('Check channels awaiting recovery only')}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='monitor_setting.auto_test_channel_minutes'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Test interval (minutes)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={1}
-                      step={1}
-                      {...safeNumberFieldProps(field)}
-                      disabled={!channelTestsEnabled}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {channelTestMode === 'passive_recovery'
-                      ? t(
-                          'How frequently the system checks auto-disabled channels for recovery'
-                        )
-                      : t('How frequently the system tests all channels')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </SettingsControlGroup>
 
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>
-            <FormField
-              control={form.control}
-              name='perf_metrics_setting.enabled'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>
-                      {t('Enable model performance metrics')}
-                    </FormLabel>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='perf_metrics_setting.flush_interval'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Flush interval (minutes)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={1}
-                      step={1}
-                      {...safeNumberFieldProps(field)}
-                      disabled={!perfMetricsEnabled}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='perf_metrics_setting.bucket_time'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Aggregation bucket')}</FormLabel>
-                  <Select
-                    items={[
-                      { value: 'minute', label: t('1 minute') },
-                      { value: '5min', label: t('5 minutes') },
-                      { value: 'hour', label: t('1 hour') },
-                    ]}
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={!perfMetricsEnabled}
-                  >
+          <SettingsControlGroup>
+            <div>
+              <h4 className='font-medium'>{t('Channel health checks')}</h4>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t(
+                  'Scheduled channel tests feed availability data into the same model performance metrics.'
+                )}
+              </p>
+            </div>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+              <FormField
+                control={form.control}
+                name='monitor_setting.auto_test_channel_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Scheduled channel tests')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Automatically probe all channels in the background'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
                     </FormControl>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='minute'>{t('1 minute')}</SelectItem>
-                        <SelectItem value='5min'>{t('5 minutes')}</SelectItem>
-                        <SelectItem value='hour'>{t('1 hour')}</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                  </SettingsSwitchItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='monitor_setting.channel_test_mode'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Channel test mode')}</FormLabel>
+                    <Select
+                      items={[
+                        {
+                          value: 'scheduled_all',
+                          label: t('Actively check all channels'),
+                        },
+                        {
+                          value: 'auto_ban_only',
+                          label: t(
+                            'Actively check auto-disable-enabled channels'
+                          ),
+                        },
+                        {
+                          value: 'passive_recovery',
+                          label: t('Check channels awaiting recovery only'),
+                        },
+                      ]}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={!channelTestsEnabled}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='scheduled_all'>
+                            {t('Actively check all channels')}
+                          </SelectItem>
+                          <SelectItem value='auto_ban_only'>
+                            {t('Actively check auto-disable-enabled channels')}
+                          </SelectItem>
+                          <SelectItem value='passive_recovery'>
+                            {t('Check channels awaiting recovery only')}
+                          </SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='monitor_setting.auto_test_channel_minutes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Test interval (minutes)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                        disabled={!channelTestsEnabled}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {channelTestMode === 'passive_recovery'
+                        ? t(
+                            'How frequently the system checks auto-disabled channels for recovery'
+                          )
+                        : t('How frequently the system tests all channels')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
             <FormField
               control={form.control}
-              name='perf_metrics_setting.retention_days'
+              name='monitor_setting.excluded_auto_test_models'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Retention days')}</FormLabel>
+                  <FormLabel>
+                    {t('Excluded models from scheduled tests')}
+                  </FormLabel>
                   <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      step={1}
-                      {...safeNumberFieldProps(field)}
-                      disabled={!perfMetricsEnabled}
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      disabled={!channelTestsEnabled}
+                      heightClassName='h-36 min-h-36 max-h-36'
+                      placeholder={'[\n  "gpt-image-*",\n  "dall-e-*"\n]'}
+                      ariaLabel={t('Excluded models from scheduled tests')}
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('0 means data is kept permanently')}
+                    {t(
+                      'JSON array of exact model names or * wildcard patterns. This only affects scheduled tests.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
-          </div>
+          </SettingsControlGroup>
         </SettingsForm>
       </Form>
     </SettingsSection>

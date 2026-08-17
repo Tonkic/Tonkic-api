@@ -38,6 +38,7 @@ const defaultValues = {
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 15,
   'monitor_setting.channel_test_mode': 'scheduled_all' as const,
+  'monitor_setting.excluded_auto_test_models': '["gpt-image-*"]',
 }
 
 function renderWithQueryClient(children: ReactNode) {
@@ -56,6 +57,11 @@ describe('monitoring settings', () => {
       'Scheduled channel tests': 'Scheduled channel tests',
       'Channel test mode': 'Channel test mode',
       'Test interval (minutes)': 'Test interval (minutes)',
+      'Model performance metrics': 'Model performance metrics',
+      'Channel health checks': 'Channel health checks',
+      'Enable model performance metrics': 'Enable model performance metrics',
+      'Excluded models from scheduled tests':
+        'Excluded models from scheduled tests',
     })
   })
 
@@ -98,6 +104,12 @@ describe('monitoring settings', () => {
 
     fireEvent.click(enableSwitch)
     fireEvent.change(intervalInput, { target: { value: '20' } })
+    fireEvent.input(
+      screen.getByRole('textbox', {
+        name: 'Excluded models from scheduled tests',
+      }),
+      { target: { value: '["gpt-image-*","dall-e-*"]' } }
+    )
     const form = container.querySelector('form')
     expect(form).not.toBeNull()
     if (!form) return
@@ -112,7 +124,44 @@ describe('monitoring settings', () => {
         key: 'monitor_setting.auto_test_channel_minutes',
         value: 20,
       })
+      expect(updateSystemOption).toHaveBeenCalledWith({
+        key: 'monitor_setting.excluded_auto_test_models',
+        value: '["gpt-image-*","dall-e-*"]',
+      })
     })
+    queryClient.clear()
+  })
+
+  test('keeps each heading with its related settings', () => {
+    const { queryClient } = renderWithQueryClient(
+      <MonitoringSettingsSection
+        defaultValues={{
+          ...defaultValues,
+          'monitor_setting.auto_test_channel_enabled': true,
+        }}
+      />
+    )
+
+    const metricsHeading = screen.getByRole('heading', {
+      name: 'Model performance metrics',
+    })
+    const healthHeading = screen.getByRole('heading', {
+      name: 'Channel health checks',
+    })
+    const metricsGroup = metricsHeading.parentElement?.parentElement
+    const healthGroup = healthHeading.parentElement?.parentElement
+
+    expect(metricsGroup).toContainElement(
+      screen.getByRole('switch', { name: 'Enable model performance metrics' })
+    )
+    expect(healthGroup).toContainElement(
+      screen.getByRole('switch', { name: 'Scheduled channel tests' })
+    )
+    expect(healthGroup).toContainElement(
+      screen.getByRole('textbox', {
+        name: 'Excluded models from scheduled tests',
+      })
+    )
     queryClient.clear()
   })
 })

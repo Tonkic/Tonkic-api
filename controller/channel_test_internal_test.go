@@ -348,6 +348,19 @@ func TestAutomaticChannelTestModelsFallsBackWhenChannelHasNoModels(t *testing.T)
 	assert.Equal(t, []string{"gpt-4o-mini"}, automaticChannelTestModels(&model.Channel{}))
 }
 
+func TestExcludeAutomaticChannelTestModelsSupportsExactAndWildcardPatterns(t *testing.T) {
+	models := []string{"gpt-image-2", "dall-e-3", "grok-4.6", "flux-pro"}
+	patterns := []string{"gpt-image-*", "dall-e-3", "flux-*"}
+
+	assert.Equal(t, []string{"grok-4.6"}, excludeAutomaticChannelTestModels(models, patterns))
+}
+
+func TestExcludeAutomaticChannelTestModelsIsCaseSensitive(t *testing.T) {
+	assert.Equal(t, []string{"GPT-IMAGE-2"}, excludeAutomaticChannelTestModels(
+		[]string{"GPT-IMAGE-2"}, []string{"gpt-image-*"},
+	))
+}
+
 func TestSelectChannelsForAutomaticTestAutoBanOnlyUsesEligibleChannels(t *testing.T) {
 	autoBanEnabled := 1
 	autoBanDisabled := 0

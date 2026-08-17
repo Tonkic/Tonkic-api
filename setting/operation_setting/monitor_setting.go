@@ -8,9 +8,10 @@ import (
 )
 
 type MonitorSetting struct {
-	AutoTestChannelEnabled bool    `json:"auto_test_channel_enabled"`
-	AutoTestChannelMinutes float64 `json:"auto_test_channel_minutes"`
-	ChannelTestMode        string  `json:"channel_test_mode"`
+	AutoTestChannelEnabled bool     `json:"auto_test_channel_enabled"`
+	AutoTestChannelMinutes float64  `json:"auto_test_channel_minutes"`
+	ChannelTestMode        string   `json:"channel_test_mode"`
+	ExcludedAutoTestModels []string `json:"excluded_auto_test_models"`
 }
 
 const (
@@ -24,6 +25,13 @@ var monitorSetting = MonitorSetting{
 	AutoTestChannelEnabled: true,
 	AutoTestChannelMinutes: 15,
 	ChannelTestMode:        ChannelTestModeScheduledAll,
+	ExcludedAutoTestModels: []string{
+		"gpt-image-*",
+		"dall-e-*",
+		"imagen-*",
+		"flux-*",
+		"chatgpt-image-latest",
+	},
 }
 
 func init() {
