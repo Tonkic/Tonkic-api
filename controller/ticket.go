@@ -17,6 +17,10 @@ func CreateTicket(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if c.GetInt("status") == common.UserStatusRiskBanned && request.Category != "account" {
+		common.ApiErrorMsg(c, "risk-banned users may only create account appeal tickets")
+		return
+	}
 	ticket, err := service.CreateTicket(c.GetInt("id"), request)
 	if err != nil {
 		common.ApiError(c, err)
@@ -122,6 +126,17 @@ func ReplyTicket(c *gin.Context) {
 	if err := c.ShouldBindJSON(&request); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if c.GetInt("status") == common.UserStatusRiskBanned {
+		ticket, err := service.GetTicket(c.GetInt("id"), ticketID)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if ticket.Category != "account" {
+			common.ApiErrorMsg(c, "risk-banned users may only reply to account appeal tickets")
+			return
+		}
 	}
 	ticket, err := service.ReplyTicket(c.GetInt("id"), ticketID, false, request)
 	if err != nil {

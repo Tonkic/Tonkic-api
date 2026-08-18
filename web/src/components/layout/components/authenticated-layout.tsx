@@ -23,6 +23,7 @@ import { LayoutProvider } from '@/context/layout-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { getCookie } from '@/lib/cookies'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
@@ -33,6 +34,10 @@ type AuthenticatedLayoutProps = {
 
 export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const defaultOpen = getCookie('sidebar_state') !== 'false'
+	const restricted = useAuthStore((state) => state.auth.user?.status === 3)
+	if (restricted) {
+		return <main className='bg-muted/20 min-h-svh'>{props.children ?? <AnimatedOutlet />}</main>
+	}
 
   return (
     <LayoutProvider>

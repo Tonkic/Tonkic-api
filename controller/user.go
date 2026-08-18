@@ -147,6 +147,8 @@ func recordLoginAudit(user *model.User, c *gin.Context) {
 	model.RecordLoginLog(user.Id, user.Username, content, ip, "login", map[string]interface{}{
 		"method": method,
 	}, extra)
+	userAgentHash := common.HmacSha256(c.Request.UserAgent(), common.CryptoSecret)
+	_ = model.RecordSecurityEvent(&model.SecurityEvent{UserID: user.Id, EventType: "login", IP: ip, UserAgentHash: userAgentHash, RequestID: c.GetString(common.RequestIdKey), CreatedAt: common.GetTimestamp()})
 }
 
 // setupLogin creates a server-controlled login Session and returns the shared
@@ -156,7 +158,7 @@ func setupLogin(user *model.User, c *gin.Context) {
 }
 
 func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin.Context) {
-	if user == nil || user.Id <= 0 || user.Status != common.UserStatusEnabled {
+	if user == nil || user.Id <= 0 || (user.Status != common.UserStatusEnabled && user.Status != common.UserStatusRiskBanned) {
 		common.ApiErrorI18n(c, i18n.MsgAuthUserBanned)
 		return
 	}
@@ -199,6 +201,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			"access_expires_at": bundle.AccessExpiresAt,
 			"session":           bundle.Session,
 			"user":              buildSelfUserData(currentUser),
+			"restricted":        currentUser.Status == common.UserStatusRiskBanned,
 		},
 	})
 }
@@ -280,6 +283,7 @@ func Register(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	_ = model.RecordSecurityEvent(&model.SecurityEvent{UserID: cleanUser.Id, EventType: "register", IP: c.ClientIP(), UserAgentHash: common.HmacSha256(c.Request.UserAgent(), common.CryptoSecret), RequestID: c.GetString(common.RequestIdKey), CreatedAt: common.GetTimestamp()})
 
 	// 获取插入后的用户ID
 	var insertedUser model.User

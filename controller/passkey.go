@@ -387,7 +387,7 @@ func PasskeyLoginFinish(c *gin.Context) {
 			return nil, fmt.Errorf("用户信息获取失败: %w", err)
 		}
 
-		if user.Status != common.UserStatusEnabled {
+		if user.Status != common.UserStatusEnabled && user.Status != common.UserStatusRiskBanned {
 			return nil, errors.New("该用户已被禁用")
 		}
 
@@ -422,7 +422,7 @@ func PasskeyLoginFinish(c *gin.Context) {
 		return
 	}
 
-	if modelUser.Status != common.UserStatusEnabled {
+	if modelUser.Status != common.UserStatusEnabled && modelUser.Status != common.UserStatusRiskBanned {
 		common.ApiErrorMsg(c, "该用户已被禁用")
 		return
 	}

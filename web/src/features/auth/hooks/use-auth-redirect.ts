@@ -47,8 +47,9 @@ export function useAuthRedirect() {
       await i18n.changeLanguage(savedLang)
     }
 
-    const targetPath =
-      sanitizeAuthRedirect(redirectTo, window.location.origin) ?? '/dashboard'
+	const targetPath = bundle.user.status === 3
+	  ? '/tickets'
+	  : (sanitizeAuthRedirect(redirectTo, window.location.origin) ?? '/dashboard')
     navigate({ href: targetPath, replace: true })
   }
 

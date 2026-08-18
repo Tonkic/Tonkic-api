@@ -95,6 +95,29 @@ func UserAuth() func(c *gin.Context) {
 	}
 }
 
+// TicketAuth permits risk-banned users to access only the appeal ticket routes.
+// All regular dashboard and relay middleware continue to reject their status.
+func TicketAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		user, identity, useAccessToken, err := authenticateDashboardRequest(c)
+		if err != nil {
+			writeDashboardAuthError(c, err)
+			return
+		}
+		if user.Status != common.UserStatusEnabled && user.Status != common.UserStatusRiskBanned {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
+			return
+		}
+		if user.Role < common.RoleCommonUser || !validUserInfo(user.Username, user.Role) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_INVALID", "message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid)})
+			return
+		}
+		setDashboardAuthContext(c, user, identity, useAccessToken)
+		c.Set("status", user.Status)
+		c.Next()
+	}
+}
+
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)

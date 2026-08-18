@@ -366,6 +366,12 @@ export type OperationsSettings = {
     | 'auto_ban_only'
     | 'passive_recovery'
   'monitor_setting.excluded_auto_test_models': string
+	'risk_setting.enabled': boolean
+	'risk_setting.auto_ban_enabled': boolean
+	'risk_setting.scan_interval_minutes': number
+	'risk_setting.lookback_days': number
+	'risk_setting.auto_ban_score': number
+	'risk_setting.minimum_categories': number
 }
 
 export type SecuritySettings = {

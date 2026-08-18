@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
+import { RiskSettingsSection } from '../integrations/risk-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
@@ -40,6 +41,18 @@ const OPERATIONS_SECTIONS = [
       />
     ),
   },
+	{
+	  id: 'risk',
+	  titleKey: 'Account risk control',
+	  build: (settings: OperationsSettings) => <RiskSettingsSection defaultValues={{
+		'risk_setting.enabled': settings['risk_setting.enabled'] ?? false,
+		'risk_setting.auto_ban_enabled': settings['risk_setting.auto_ban_enabled'] ?? false,
+		'risk_setting.scan_interval_minutes': settings['risk_setting.scan_interval_minutes'] ?? 5,
+		'risk_setting.lookback_days': settings['risk_setting.lookback_days'] ?? 7,
+		'risk_setting.auto_ban_score': settings['risk_setting.auto_ban_score'] ?? 100,
+		'risk_setting.minimum_categories': settings['risk_setting.minimum_categories'] ?? 2,
+	  }} />,
+	},
   {
     id: 'alerts',
     titleKey: 'Monitoring & Alerts',

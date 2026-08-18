@@ -61,6 +61,12 @@ const defaultOperationsSettings: OperationsSettings = {
   'monitor_setting.channel_test_mode': 'scheduled_all',
   'monitor_setting.excluded_auto_test_models':
     '["gpt-image-*","dall-e-*","imagen-*","flux-*","chatgpt-image-latest"]',
+	'risk_setting.enabled': false,
+	'risk_setting.auto_ban_enabled': false,
+	'risk_setting.scan_interval_minutes': 5,
+	'risk_setting.lookback_days': 7,
+	'risk_setting.auto_ban_score': 100,
+	'risk_setting.minimum_categories': 2,
 }
 
 export function OperationsSettings() {

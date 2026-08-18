@@ -213,7 +213,7 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	// 8. Check user status
-	if user.Status != common.UserStatusEnabled {
+	if user.Status != common.UserStatusEnabled && user.Status != common.UserStatusRiskBanned {
 		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
 		return
 	}

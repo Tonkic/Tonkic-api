@@ -296,6 +296,10 @@ func migrateDB() error {
 		&TicketMessage{},
 		&CompensationCampaign{},
 		&CompensationClaim{},
+		&RiskCase{},
+		&RiskCaseUser{},
+		&RiskAllowlist{},
+		&SecurityEvent{},
 	)
 	if err != nil {
 		return err

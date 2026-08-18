@@ -29,6 +29,7 @@ import {
   MessageSquare,
   MessagesSquare,
   Radio,
+	ShieldAlert,
   ServerCog,
   Settings,
   Ticket,
@@ -146,6 +147,11 @@ export function useSidebarData(): SidebarData {
             url: '/users',
             icon: Users,
           },
+		  {
+			title: t('Risk accounts'),
+			url: '/risk-accounts',
+			icon: ShieldAlert,
+		  },
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',

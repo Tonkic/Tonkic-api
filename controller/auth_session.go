@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -40,6 +41,7 @@ func RefreshAuth(c *gin.Context) {
 			"access_expires_at": bundle.AccessExpiresAt,
 			"user":              buildSelfUserData(user),
 			"session":           bundle.Session,
+			"restricted":        user.Status == common.UserStatusRiskBanned,
 		},
 	})
 }

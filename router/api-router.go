@@ -42,7 +42,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
 
 		ticketRoute := apiRouter.Group("/ticket")
-		ticketRoute.Use(middleware.UserAuth())
+		ticketRoute.Use(middleware.TicketAuth())
 		{
 			ticketRoute.GET("", controller.ListTickets)
 			ticketRoute.POST("", controller.CreateTicket)
@@ -57,6 +57,15 @@ func SetApiRouter(router *gin.Engine) {
 			ticketAdminRoute.GET("/:id", controller.AdminGetTicket)
 			ticketAdminRoute.POST("/:id/messages", controller.AdminReplyTicket)
 			ticketAdminRoute.PATCH("/:id", controller.AdminUpdateTicket)
+		}
+		riskRoute := apiRouter.Group("/risk")
+		riskRoute.Use(middleware.AdminAuth())
+		{
+			riskRoute.GET("/cases", controller.ListRiskCases)
+			riskRoute.POST("/scan", controller.RunRiskScan)
+			riskRoute.POST("/cases/:id/ignore", controller.IgnoreRiskCase)
+			riskRoute.POST("/cases/:id/ban", controller.BanRiskCase)
+			riskRoute.POST("/cases/:id/revert", controller.RevertRiskCase)
 		}
 		compensationRoute := apiRouter.Group("/compensation")
 		compensationRoute.Use(middleware.UserAuth())

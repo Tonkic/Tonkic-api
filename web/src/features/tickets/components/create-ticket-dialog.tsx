@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { createTicket } from '../api'
 import { TICKET_CATEGORIES } from '../constants'
@@ -55,9 +56,10 @@ type CreateTicketDialogProps = {
 
 export function CreateTicketDialog(props: CreateTicketDialogProps) {
   const { t } = useTranslation()
+	const restricted = useAuthStore((state) => state.auth.user?.status === 3)
   const form = useForm<CreateTicketFormValues>({
     resolver: zodResolver(createTicketSchema),
-    defaultValues: { title: '', category: 'other', content: '' },
+	defaultValues: { title: '', category: restricted ? 'account' : 'other', content: '' },
   })
   const mutation = useMutation({
     mutationFn: createTicket,
@@ -103,7 +105,7 @@ export function CreateTicketDialog(props: CreateTicketDialogProps) {
           className='space-y-4'
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <FormField
+		  {!restricted && <FormField
             control={form.control}
             name='title'
             render={({ field }) => (
@@ -115,7 +117,7 @@ export function CreateTicketDialog(props: CreateTicketDialogProps) {
                 <FormMessage />
               </FormItem>
             )}
-          />
+		  />}
           <FormField
             control={form.control}
             name='category'
