@@ -132,6 +132,15 @@ func UpdateOption(c *gin.Context) {
 		return
 	}
 	switch option.Value.(type) {
+	case string, bool, float64:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "设置值必须是字符串、布尔值或数字",
+		})
+		return
+	}
+	switch option.Value.(type) {
 	case bool:
 		option.Value = common.Interface2String(option.Value.(bool))
 	case float64:
