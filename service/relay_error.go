@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,6 +21,9 @@ func ShouldRetryRelayError(c *gin.Context, openaiErr *types.NewAPIError, retryTi
 		return false
 	}
 	if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
+		return false
+	}
+	if HasWrittenRelayResponse(c) {
 		return false
 	}
 	if ShouldSkipRetryAfterChannelAffinityFailure(c) {
@@ -49,7 +53,16 @@ func ShouldRetryRelayError(c *gin.Context, openaiErr *types.NewAPIError, retryTi
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
 		return false
 	}
+	if code == 504 && c != nil &&
+		common.GetContextKeyString(c, constant.ContextKeyTokenGroup) == "auto" &&
+		common.GetContextKeyBool(c, constant.ContextKeyTokenCrossGroupRetry) {
+		return true
+	}
 	return operation_setting.ShouldRetryByStatusCode(code)
+}
+
+func HasWrittenRelayResponse(c *gin.Context) bool {
+	return c != nil && c.Writer != nil && c.Writer.Written() && c.Writer.Status() != http.StatusSwitchingProtocols
 }
 
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {

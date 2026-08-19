@@ -389,7 +389,11 @@ func (s *responsesWSSession) processChannelError(channel *appmodel.Channel, apiE
 	if retryParam == nil {
 		return apiErr, false
 	}
-	return apiErr, service.ShouldRetryRelayError(s.c, apiErr, common.RetryTimes-retryParam.GetRetry())
+	shouldRetry := service.ShouldRetryRelayError(s.c, apiErr, common.RetryTimes-retryParam.GetRetry())
+	if shouldRetry && channel != nil && !channel.ChannelInfo.IsMultiKey {
+		retryParam.ExcludeChannel(channel.Id)
+	}
+	return apiErr, shouldRetry
 }
 
 func (s *responsesWSSession) prepareCall(create responsesWSCreateRequest, commitRate middleware.ModelRequestRateLimitCommit) (*responsesWSCallState, []byte, *types.NewAPIError) {

@@ -64,6 +64,27 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	require.Equal(t, common.QuotaPerUnit, info.TieredBillingSnapshot.QuotaPerUnit)
 }
 
+func TestHandleGroupRatioUsesSelectedAutoGroupForBilling(t *testing.T) {
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"0.05羊毛":0.05,"gpt_sale":0.5}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("auto_group", "gpt_sale")
+	info := &relaycommon.RelayInfo{
+		UserGroup:  "default",
+		UsingGroup: "0.05羊毛",
+	}
+
+	ratio := HandleGroupRatio(ctx, info)
+
+	require.Equal(t, "gpt_sale", info.UsingGroup)
+	require.InDelta(t, 0.5, ratio.GroupRatio, 0.000001)
+}
+
 func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

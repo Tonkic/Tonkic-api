@@ -16,6 +16,7 @@ type RetryParam struct {
 	ModelName    string
 	RequestPath  string
 	Retry        *int
+	Excluded     map[int]struct{}
 	resetNextTry bool
 }
 
@@ -43,6 +44,13 @@ func (p *RetryParam) IncreaseRetry() {
 
 func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
+}
+
+func (p *RetryParam) ExcludeChannel(channelID int) {
+	if p.Excluded == nil {
+		p.Excluded = make(map[int]struct{})
+	}
+	p.Excluded[channelID] = struct{}{}
 }
 
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
@@ -104,6 +112,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		}
 
 		for i := startGroupIndex; i < len(autoGroups); i++ {
+			if i > startGroupIndex && !crossGroupRetry && param.GetRetry() > 0 {
+				break
+			}
 			autoGroup := autoGroups[i]
 			// Calculate priorityRetry for current group
 			// 计算当前分组的 priorityRetry
@@ -115,8 +126,12 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			channel, _ = model.GetRandomSatisfiedChannelExcluding(autoGroup, param.ModelName, priorityRetry, param.RequestPath, param.Excluded)
 			if channel == nil {
+				if !crossGroupRetry && param.GetRetry() > 0 {
+					selectGroup = autoGroup
+					break
+				}
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
 				logger.LogDebug(param.Ctx, "No available channel in group %s for model %s at priorityRetry %d, trying next group", autoGroup, param.ModelName, priorityRetry)
@@ -153,7 +168,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		channel, err = model.GetRandomSatisfiedChannelExcluding(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, param.Excluded)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}

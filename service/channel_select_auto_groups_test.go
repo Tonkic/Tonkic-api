@@ -127,3 +127,125 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	assert.Equal(t, "default", selectedGroup)
 	assert.Equal(t, "default", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
 }
+
+func TestCacheGetRandomSatisfiedChannelExcludesFailedChannelAndAdvancesAutoGroup(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	common.RetryTimes = 1
+	const modelName = "auto-groups-cross-group-retry-model"
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","0.05羊毛":"0.05羊毛","gpt_sale":"GPT Sale"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"0.05羊毛":0.05,"gpt_sale":0.5}`))
+	createChannelSelectAutoGroupsChannel(t, db, 7, "0.05羊毛", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 3, "gpt_sale", modelName)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"0.05羊毛", "gpt_sale"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
+
+	retry := 0
+	param := &RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   modelName,
+		RequestPath: "/v1/chat/completions",
+		Retry:       &retry,
+	}
+
+	first, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.Equal(t, 7, first.Id)
+	assert.Equal(t, "0.05羊毛", selectedGroup)
+
+	param.ExcludeChannel(first.Id)
+	param.IncreaseRetry()
+	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.Equal(t, 3, second.Id)
+	assert.Equal(t, "gpt_sale", selectedGroup)
+	assert.NotEqual(t, first.Id, second.Id)
+}
+
+func TestCacheGetRandomSatisfiedChannelDoesNotAdvanceAutoGroupWhenCrossGroupRetryIsDisabled(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	common.RetryTimes = 1
+	const modelName = "auto-groups-no-cross-group-retry-model"
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","cheap":"Cheap","fallback":"Fallback"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"cheap":0.25,"fallback":0.5}`))
+	createChannelSelectAutoGroupsChannel(t, db, 7, "cheap", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 3, "fallback", modelName)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"cheap", "fallback"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, false)
+
+	retry := 0
+	param := &RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   modelName,
+		RequestPath: "/v1/chat/completions",
+		Retry:       &retry,
+	}
+
+	first, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.Equal(t, 7, first.Id)
+	assert.Equal(t, "cheap", selectedGroup)
+
+	param.ExcludeChannel(first.Id)
+	param.IncreaseRetry()
+	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	assert.Nil(t, second)
+	assert.Equal(t, "cheap", selectedGroup)
+}
+
+func TestCacheGetRandomSatisfiedChannelExhaustsCurrentAutoGroupBeforeAdvancing(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	common.RetryTimes = 1
+	const modelName = "auto-groups-current-group-first-model"
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","cheap":"Cheap","fallback":"Fallback"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"cheap":0.25,"fallback":0.5}`))
+	createChannelSelectAutoGroupsChannel(t, db, 7, "cheap", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 8, "cheap", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 3, "fallback", modelName)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"cheap", "fallback"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
+
+	retry := 0
+	param := &RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   modelName,
+		RequestPath: "/v1/chat/completions",
+		Retry:       &retry,
+	}
+
+	first, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.Contains(t, []int{7, 8}, first.Id)
+	assert.Equal(t, "cheap", selectedGroup)
+
+	param.ExcludeChannel(first.Id)
+	param.IncreaseRetry()
+	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.Contains(t, []int{7, 8}, second.Id)
+	assert.NotEqual(t, first.Id, second.Id)
+	assert.Equal(t, "cheap", selectedGroup)
+}

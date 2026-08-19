@@ -255,8 +255,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
+		if relayInfo.HasSendResponse() || service.HasWrittenRelayResponse(c) {
+			break
+		}
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+		if !channel.ChannelInfo.IsMultiKey {
+			retryParam.ExcludeChannel(channel.Id)
 		}
 	}
 
@@ -328,12 +334,17 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
+	previousGroup := common.GetContextKeyString(c, constant.ContextKeyAutoGroup)
+	previousChannelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if previousGroup != "" && selectGroup != previousGroup {
+		logger.LogInfo(c, fmt.Sprintf("跨组重试：%s/channel%d -> %s/channel%d", previousGroup, previousChannelID, selectGroup, channel.Id))
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
@@ -514,6 +525,9 @@ func RelayTask(c *gin.Context) {
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+		if !channel.ChannelInfo.IsMultiKey {
+			retryParam.ExcludeChannel(channel.Id)
 		}
 	}
 
