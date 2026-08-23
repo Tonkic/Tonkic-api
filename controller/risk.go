@@ -62,10 +62,6 @@ func BanRiskCase(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if riskCase.Status == model.RiskCaseStatusBanned {
-		common.ApiSuccess(c, nil)
-		return
-	}
 	for _, member := range riskCase.Users {
 		var user model.User
 		if err := model.DB.First(&user, member.UserID).Error; err != nil {

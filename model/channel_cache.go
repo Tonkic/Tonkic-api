@@ -140,6 +140,9 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, r
 			}
 		}
 		channels = filtered
+		// Exclusion already advances past failed channels. Applying the retry
+		// offset as well would skip the highest-priority remaining channel.
+		retry = 0
 	}
 
 	if len(channels) == 0 {

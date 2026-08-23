@@ -147,8 +147,7 @@ func recordLoginAudit(user *model.User, c *gin.Context) {
 	model.RecordLoginLog(user.Id, user.Username, content, ip, "login", map[string]interface{}{
 		"method": method,
 	}, extra)
-	userAgentHash := common.HmacSha256(c.Request.UserAgent(), common.CryptoSecret)
-	_ = model.RecordSecurityEvent(&model.SecurityEvent{UserID: user.Id, EventType: "login", IP: ip, UserAgentHash: userAgentHash, RequestID: c.GetString(common.RequestIdKey), CreatedAt: common.GetTimestamp()})
+	_ = model.RecordSecurityRequest(c, user.Id, "login", http.StatusOK, 0, "", 0, c.GetInt("token_id"))
 }
 
 // setupLogin creates a server-controlled login Session and returns the shared
@@ -283,7 +282,7 @@ func Register(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	_ = model.RecordSecurityEvent(&model.SecurityEvent{UserID: cleanUser.Id, EventType: "register", IP: c.ClientIP(), UserAgentHash: common.HmacSha256(c.Request.UserAgent(), common.CryptoSecret), RequestID: c.GetString(common.RequestIdKey), CreatedAt: common.GetTimestamp()})
+	_ = model.RecordSecurityRequest(c, cleanUser.Id, "register", http.StatusOK, 0, "", 0, 0)
 
 	// 获取插入后的用户ID
 	var insertedUser model.User

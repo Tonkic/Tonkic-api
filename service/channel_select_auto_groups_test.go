@@ -64,9 +64,8 @@ func setupChannelSelectAutoGroupsTest(t *testing.T) *gorm.DB {
 	return db
 }
 
-func createChannelSelectAutoGroupsChannel(t *testing.T, db *gorm.DB, id int, group, modelName string) {
+func createChannelSelectAutoGroupsChannelWithPriority(t *testing.T, db *gorm.DB, id int, group, modelName string, priority int64) {
 	t.Helper()
-	priority := int64(0)
 	weight := uint(100)
 	require.NoError(t, db.Create(&model.Channel{
 		Id:       id,
@@ -87,6 +86,41 @@ func createChannelSelectAutoGroupsChannel(t *testing.T, db *gorm.DB, id int, gro
 		Priority:  &priority,
 		Weight:    weight,
 	}).Error)
+}
+
+func createChannelSelectAutoGroupsChannel(t *testing.T, db *gorm.DB, id int, group, modelName string) {
+	t.Helper()
+	createChannelSelectAutoGroupsChannelWithPriority(t, db, id, group, modelName, 0)
+}
+
+func TestCacheGetRandomSatisfiedChannelTriesRemainingPrioritiesInOrder(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	const modelName = "ordered-fallback-model"
+	createChannelSelectAutoGroupsChannelWithPriority(t, db, 5, "default", modelName, 3)
+	createChannelSelectAutoGroupsChannelWithPriority(t, db, 10, "default", modelName, 2)
+	createChannelSelectAutoGroupsChannelWithPriority(t, db, 2, "default", modelName, 1)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	retry := 0
+	param := &RetryParam{
+		Ctx: ctx, TokenGroup: "default", ModelName: modelName,
+		RequestPath: "/v1/responses", Retry: &retry,
+	}
+
+	var selected []int
+	for range 3 {
+		channel, group, err := CacheGetRandomSatisfiedChannel(param)
+		require.NoError(t, err)
+		require.NotNil(t, channel)
+		assert.Equal(t, "default", group)
+		selected = append(selected, channel.Id)
+		param.ExcludeChannel(channel.Id)
+		param.IncreaseRetry()
+	}
+
+	assert.Equal(t, []int{5, 10, 2}, selected)
 }
 
 func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(t *testing.T) {

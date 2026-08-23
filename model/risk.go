@@ -3,7 +3,10 @@ package model
 import (
 	"errors"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"net"
+	"strings"
 )
 
 const (
@@ -48,16 +51,74 @@ type RiskAllowlist struct {
 }
 
 type SecurityEvent struct {
-	ID            int    `json:"id"`
-	UserID        int    `json:"user_id" gorm:"index:idx_security_user_time,priority:1"`
-	EventType     string `json:"event_type" gorm:"size:16;index"`
-	IP            string `json:"ip" gorm:"size:64;index:idx_security_ip_time,priority:1"`
-	UserAgentHash string `json:"user_agent_hash" gorm:"size:64"`
-	RequestID     string `json:"request_id" gorm:"size:64"`
-	CreatedAt     int64  `json:"created_at" gorm:"index:idx_security_user_time,priority:2;index:idx_security_ip_time,priority:2"`
+	ID              int    `json:"id"`
+	UserID          int    `json:"user_id" gorm:"index:idx_security_user_time,priority:1"`
+	EventType       string `json:"event_type" gorm:"size:16;index"`
+	IP              string `json:"ip" gorm:"size:64;index:idx_security_ip_time,priority:1"`
+	RemoteAddr      string `json:"-" gorm:"size:128"`
+	ForwardedFor    string `json:"-" gorm:"type:text"`
+	Forwarded       string `json:"-" gorm:"type:text"`
+	UserAgent       string `json:"-" gorm:"type:text"`
+	UserAgentHash   string `json:"user_agent_hash" gorm:"size:64;index:idx_security_ua_time,priority:1"`
+	AcceptLanguage  string `json:"-" gorm:"size:255"`
+	Origin          string `json:"-" gorm:"size:512"`
+	Referer         string `json:"-" gorm:"size:1024"`
+	SecCHUA         string `json:"-" gorm:"size:512"`
+	SecCHUAPlatform string `json:"-" gorm:"size:128"`
+	SecCHUAMobile   string `json:"-" gorm:"size:32"`
+	Method          string `json:"method" gorm:"size:16"`
+	Path            string `json:"path" gorm:"size:512"`
+	ModelName       string `json:"model_name" gorm:"size:128;index"`
+	ChannelID       int    `json:"channel_id" gorm:"index"`
+	TokenID         int    `json:"token_id" gorm:"index"`
+	StatusCode      int    `json:"status_code"`
+	DurationMs      int64  `json:"duration_ms"`
+	RequestID       string `json:"request_id" gorm:"size:64;index"`
+	CreatedAt       int64  `json:"created_at" gorm:"index:idx_security_user_time,priority:2;index:idx_security_ip_time,priority:2;index:idx_security_ua_time,priority:2"`
 }
 
 func RecordSecurityEvent(event *SecurityEvent) error { return DB.Create(event).Error }
+
+func normalizeSecurityIP(value string) string {
+	value = strings.TrimSpace(value)
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	if parsed := net.ParseIP(value); parsed != nil {
+		return parsed.String()
+	}
+	return value
+}
+
+func NormalizeSecurityIP(value string) string { return normalizeSecurityIP(value) }
+
+// RecordSecurityRequest captures request metadata without persisting bearer or
+// refresh token material. ClientIP is Gin's trusted-proxy result; RemoteAddr
+// remains available to diagnose missing or malformed forwarded headers.
+func RecordSecurityRequest(c *gin.Context, userID int, eventType string, statusCode int, durationMs int64, modelName string, channelID, tokenID int) error {
+	if c == nil || userID <= 0 {
+		return nil
+	}
+	ua := c.Request.UserAgent()
+	remote := ""
+	if c.Request != nil {
+		remote = c.Request.RemoteAddr
+	}
+	ip := normalizeSecurityIP(c.ClientIP())
+	if ip == "" && remote != "" {
+		ip = normalizeSecurityIP(remote)
+	}
+	event := &SecurityEvent{
+		UserID: userID, EventType: eventType, IP: ip,
+		RemoteAddr: remote, ForwardedFor: c.GetHeader("X-Forwarded-For"), Forwarded: c.GetHeader("Forwarded"),
+		UserAgent: ua, UserAgentHash: common.HmacSha256(ua, common.CryptoSecret),
+		AcceptLanguage: c.GetHeader("Accept-Language"), Origin: c.GetHeader("Origin"), Referer: c.GetHeader("Referer"),
+		SecCHUA: c.GetHeader("Sec-CH-UA"), SecCHUAPlatform: c.GetHeader("Sec-CH-UA-Platform"), SecCHUAMobile: c.GetHeader("Sec-CH-UA-Mobile"),
+		Method: c.Request.Method, Path: c.Request.URL.Path, ModelName: modelName, ChannelID: channelID, TokenID: tokenID,
+		StatusCode: statusCode, DurationMs: durationMs, RequestID: c.GetString(common.RequestIdKey), CreatedAt: common.GetTimestamp(),
+	}
+	return RecordSecurityEvent(event)
+}
 
 func UpsertRiskCase(riskCase *RiskCase, users []RiskCaseUser) (bool, error) {
 	skipped := false
@@ -142,9 +203,14 @@ func ApplyRiskBanCase(caseID int, userIDs []int, reviewer int, resolution string
 				return errors.New("administrator accounts cannot be risk-banned")
 			}
 			if user.Status == common.UserStatusRiskBanned {
+				// A user may have been banned by another case already. Preserve
+				// the case membership so the case remains a complete audit trail.
+				if err := tx.Model(&RiskCaseUser{}).Where("case_id = ? AND user_id = ?", caseID, userID).Update("banned_by_case", true).Error; err != nil {
+					return err
+				}
 				continue
 			}
-			if user.Status != common.UserStatusEnabled {
+			if user.Status != common.UserStatusEnabled && user.Status != common.UserStatusDisabled {
 				return errors.New("only enabled accounts can be risk-banned")
 			}
 			user.Status = common.UserStatusRiskBanned

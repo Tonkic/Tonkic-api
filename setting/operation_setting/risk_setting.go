@@ -13,7 +13,7 @@ type RiskSetting struct {
 
 var riskSetting = RiskSetting{
 	Enabled: false, AutoBanEnabled: false, ScanIntervalMinutes: 5,
-	LookbackDays: 7, AutoBanScore: 100, MinimumCategories: 2,
+	LookbackDays: 7, AutoBanScore: 100, MinimumCategories: 1,
 }
 
 func init() { config.GlobalConfig.Register("risk_setting", &riskSetting) }
@@ -28,8 +28,8 @@ func GetRiskSetting() *RiskSetting {
 	if riskSetting.AutoBanScore < 90 {
 		riskSetting.AutoBanScore = 100
 	}
-	if riskSetting.MinimumCategories < 2 {
-		riskSetting.MinimumCategories = 2
+	if riskSetting.MinimumCategories < 1 {
+		riskSetting.MinimumCategories = 1
 	}
 	return &riskSetting
 }

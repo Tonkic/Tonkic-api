@@ -6,6 +6,7 @@ import (
 	"time"
 
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,11 @@ func GetPublicModelStatus(c *gin.Context) {
 	var totalRequests int64
 	var weightedSuccessRate float64
 	models := make([]gin.H, 0, len(result.Models))
+	excludedModels := operation_setting.GetMonitorSetting().ExcludedAutoTestModels
 	for _, item := range result.Models {
+		if len(excludeAutomaticChannelTestModels([]string{item.ModelName}, excludedModels)) == 0 {
+			continue
+		}
 		hourlySeries := make([]gin.H, 0, len(item.HourlySeries))
 		for _, point := range item.HourlySeries {
 			hourlySeries = append(hourlySeries, gin.H{

@@ -31,7 +31,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+		return nil, types.WithOpenAIError(*oaiError, upstreamErrorStatus(resp.StatusCode))
 	}
 
 	// 写入新的 response body
@@ -64,6 +64,13 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	imageCounter.Commit(info)
 
 	return &usage, nil
+}
+
+func upstreamErrorStatus(statusCode int) int {
+	if statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices {
+		return http.StatusBadGateway
+	}
+	return statusCode
 }
 
 func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {

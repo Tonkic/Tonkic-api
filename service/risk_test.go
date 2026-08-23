@@ -17,7 +17,7 @@ import (
 func TestRunRiskScanCreatesCaseAndProtectsSuccessfulTopup(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:risk-scan?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Log{}, &model.TopUp{}, &model.CompensationClaim{}, &model.RiskCase{}, &model.RiskCaseUser{}, &model.RiskAllowlist{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Log{}, &model.SecurityEvent{}, &model.TopUp{}, &model.CompensationClaim{}, &model.RiskCase{}, &model.RiskCaseUser{}, &model.RiskAllowlist{}))
 	oldDB, oldLogDB := model.DB, model.LOG_DB
 	model.DB, model.LOG_DB = db, db
 	t.Cleanup(func() { model.DB, model.LOG_DB = oldDB, oldLogDB })
@@ -49,7 +49,7 @@ func TestRunRiskScanCreatesCaseAndProtectsSuccessfulTopup(t *testing.T) {
 func TestRunRiskScanDoesNotBanAnIgnoredCase(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:risk-ignored?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Log{}, &model.TopUp{}, &model.CompensationClaim{}, &model.RiskCase{}, &model.RiskCaseUser{}, &model.RiskAllowlist{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Log{}, &model.SecurityEvent{}, &model.TopUp{}, &model.CompensationClaim{}, &model.RiskCase{}, &model.RiskCaseUser{}, &model.RiskAllowlist{}))
 	oldDB, oldLogDB := model.DB, model.LOG_DB
 	oldRedisEnabled := common.RedisEnabled
 	model.DB, model.LOG_DB, common.RedisEnabled = db, db, false
@@ -77,4 +77,32 @@ func TestRunRiskScanDoesNotBanAnIgnoredCase(t *testing.T) {
 	var statuses []int
 	require.NoError(t, db.Model(&model.User{}).Order("id").Pluck("status", &statuses).Error)
 	assert.Equal(t, []int{common.UserStatusEnabled, common.UserStatusEnabled}, statuses)
+}
+
+func TestRunRiskScanUsesRegistrationAndUserAgentEvidence(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:risk-registration?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Log{}, &model.SecurityEvent{}, &model.TopUp{}, &model.CompensationClaim{}, &model.RiskCase{}, &model.RiskCaseUser{}, &model.RiskAllowlist{}))
+	oldDB, oldLogDB := model.DB, model.LOG_DB
+	model.DB, model.LOG_DB = db, db
+	t.Cleanup(func() { model.DB, model.LOG_DB = oldDB, oldLogDB })
+	setting := operation_setting.GetRiskSetting()
+	oldSetting := *setting
+	*setting = operation_setting.RiskSetting{Enabled: true, AutoBanEnabled: false, ScanIntervalMinutes: 5, LookbackDays: 7, AutoBanScore: 100, MinimumCategories: 1}
+	t.Cleanup(func() { *setting = oldSetting })
+	now := time.Now().Unix()
+	users := []model.User{{Username: "register-a", AffCode: "register-a", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, CreatedAt: now, AuthVersion: 1}, {Username: "register-b", AffCode: "register-b", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, CreatedAt: now, AuthVersion: 1}}
+	require.NoError(t, db.Create(&users).Error)
+	for _, user := range users {
+		require.NoError(t, db.Create(&model.SecurityEvent{UserID: user.Id, EventType: "register", IP: "198.51.100.9", UserAgentHash: "same-browser", CreatedAt: now}).Error)
+		require.NoError(t, db.Create(&model.SecurityEvent{UserID: user.Id, EventType: "login", IP: "198.51.100.9", UserAgentHash: "same-browser", CreatedAt: now + 1}).Error)
+	}
+	summary, err := RunRiskScan(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.CasesUpdated)
+	var members []model.RiskCaseUser
+	require.NoError(t, db.Order("user_id").Find(&members).Error)
+	assert.Len(t, members, 2)
+	assert.Contains(t, members[0].EvidenceJSON, "registration_count")
+	assert.Contains(t, members[0].EvidenceJSON, "shared_user_agent")
 }
