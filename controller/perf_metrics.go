@@ -3,10 +3,12 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
-	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -14,12 +16,7 @@ import (
 )
 
 func GetPublicModelStatus(c *gin.Context) {
-	activeRatios := ratio_setting.GetGroupRatioCopy()
-	usableGroups := service.GetUserUsableGroups(c.GetString("user_group"))
-	activeGroups := lo.Filter(lo.Keys(activeRatios), func(group string, _ int) bool {
-		_, ok := usableGroups[group]
-		return ok
-	})
+	activeGroups := lo.Keys(ratio_setting.GetGroupRatioCopy())
 	result, err := perfmetrics.QuerySummaryAll(24, activeGroups)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -29,37 +26,59 @@ func GetPublicModelStatus(c *gin.Context) {
 		return
 	}
 
+	var totalRequests int64
+	var weightedSuccessRate float64
 	models := make([]gin.H, 0, len(result.Models))
+	excludedModels := operation_setting.GetMonitorSetting().ExcludedAutoTestModels
+	publicAutoGroups := setting.GetAutoGroups()
 	for _, item := range result.Models {
-		groups := make([]gin.H, 0, len(item.Groups))
-		for _, group := range item.Groups {
-			groups = append(groups, gin.H{
-				"group": group.Group, "avg_latency_ms": group.AvgLatencyMs,
-				"success_rate": group.SuccessRate, "avg_tps": group.AvgTps,
-				"recent_success_rates": group.RecentSuccessRates, "hourly_series": group.HourlySeries,
-				"request_count": group.RequestCount,
-			})
+		if len(excludeAutomaticChannelTestModels([]string{item.ModelName}, excludedModels)) == 0 {
+			continue
 		}
-		models = append(models, gin.H{
-			"model_name":           item.ModelName,
-			"avg_latency_ms":       item.AvgLatencyMs,
-			"success_rate":         item.SuccessRate,
-			"avg_tps":              item.AvgTps,
-			"recent_success_rates": item.RecentSuccessRates,
-			"hourly_series":        item.HourlySeries,
-			"request_count":        item.RequestCount,
-			"groups":               groups,
-		})
+		for _, group := range item.Groups {
+			if !publicStatusGroupVisible(item.ModelName, group.Group, publicAutoGroups) {
+				continue
+			}
+			hourlySeries := make([]gin.H, 0, len(group.HourlySeries))
+			for _, point := range group.HourlySeries {
+				hourlySeries = append(hourlySeries, gin.H{
+					"ts": point.Ts, "success_rate": point.SuccessRate,
+				})
+			}
+			models = append(models, gin.H{
+				"model_name":           item.ModelName,
+				"group":                group.Group,
+				"avg_latency_ms":       group.AvgLatencyMs,
+				"success_rate":         group.SuccessRate,
+				"avg_tps":              group.AvgTps,
+				"recent_success_rates": group.RecentSuccessRates,
+				"hourly_series":        hourlySeries,
+			})
+			totalRequests += group.RequestCount
+			weightedSuccessRate += group.SuccessRate * float64(group.RequestCount)
+		}
+	}
+	overallSuccessRate := 0.0
+	if totalRequests > 0 {
+		overallSuccessRate = weightedSuccessRate / float64(totalRequests)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"generated_at": time.Now().Unix(),
-			"window_hours": 24,
-			"models":       models,
+			"generated_at":         time.Now().Unix(),
+			"window_hours":         24,
+			"overall_success_rate": overallSuccessRate,
+			"models":               models,
 		},
 	})
+}
+
+func publicStatusGroupVisible(modelName, group string, autoGroups []string) bool {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "gpt-") {
+		return true
+	}
+	return lo.Contains(autoGroups, group)
 }
 
 func GetPerfMetricsSummary(c *gin.Context) {

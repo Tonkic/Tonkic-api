@@ -23,6 +23,7 @@ describe('model hourly status row', () => {
       <ModelStatusRow
         model={{
           model_name: 'example-model',
+          group: 'gpt_sale',
           avg_latency_ms: 250,
           success_rate: 100,
           avg_tps: 10,
@@ -34,6 +35,7 @@ describe('model hourly status row', () => {
     )
 
     expect(screen.getByText('example-model')).toBeInTheDocument()
+    expect(screen.getByText(/gpt_sale/)).toBeInTheDocument()
     const timeline = screen.getByLabelText('Recent status')
     const cells = within(timeline).getAllByTitle(/./)
     expect(cells).toHaveLength(24)
