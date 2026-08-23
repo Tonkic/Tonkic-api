@@ -114,6 +114,7 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 	previousLogDatabaseType := common.LogDatabaseType()
 	previousAutoGroups := setting.AutoGroups2JsonString()
 	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
+	previousUsableGroups := setting.UserUsableGroups2JSONString()
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -121,11 +122,13 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 	model.DB = db
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["0.05羊毛","gpt_sale"]`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"0.05羊毛":0.05,"gpt_sale":0.5,"all-with-team":1}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"0.05羊毛":"0.05倍率分组","gpt_sale":"0.1倍率分组"}`))
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
 	})
 
 	now := time.Now().Unix()
@@ -146,22 +149,33 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 		Data struct {
 			OverallSuccessRate float64 `json:"overall_success_rate"`
 			Models             []struct {
-				ModelName   string  `json:"model_name"`
-				Group       string  `json:"group"`
-				SuccessRate float64 `json:"success_rate"`
+				ModelName        string  `json:"model_name"`
+				Group            string  `json:"group"`
+				GroupDisplayName string  `json:"group_display_name"`
+				SuccessRate      float64 `json:"success_rate"`
 			} `json:"models"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
 	require.Len(t, payload.Data.Models, 2)
 	groups := lo.Map(payload.Data.Models, func(item struct {
-		ModelName   string  `json:"model_name"`
-		Group       string  `json:"group"`
-		SuccessRate float64 `json:"success_rate"`
+		ModelName        string  `json:"model_name"`
+		Group            string  `json:"group"`
+		GroupDisplayName string  `json:"group_display_name"`
+		SuccessRate      float64 `json:"success_rate"`
 	}, _ int) string {
 		return item.Group
 	})
 	assert.ElementsMatch(t, []string{"0.05羊毛", "gpt_sale"}, groups)
+	displayNames := lo.Map(payload.Data.Models, func(item struct {
+		ModelName        string  `json:"model_name"`
+		Group            string  `json:"group"`
+		GroupDisplayName string  `json:"group_display_name"`
+		SuccessRate      float64 `json:"success_rate"`
+	}, _ int) string {
+		return item.GroupDisplayName
+	})
+	assert.ElementsMatch(t, []string{"0.05倍率分组", "0.1倍率分组"}, displayNames)
 	assert.InDelta(t, 10, payload.Data.OverallSuccessRate, 0.01)
 	assert.NotContains(t, response.Body.String(), "all-with-team")
 	assert.NotContains(t, response.Body.String(), `"request_count"`)

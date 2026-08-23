@@ -9,7 +9,9 @@ License, or (at your option) any later version.
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
-import { ModelStatusRow } from '../index'
+import type { PublicStatusPoint } from '@/features/performance-metrics/types'
+
+import { groupPublicModelStatuses, ModelStatusRow } from '../index'
 
 describe('model hourly status row', () => {
   test('renders one model with exactly 24 ordered hourly status cells', () => {
@@ -23,6 +25,7 @@ describe('model hourly status row', () => {
         model={{
           model_name: 'example-model',
           group: 'gpt_sale',
+          group_display_name: '0.1倍率分组',
           avg_latency_ms: 250,
           success_rate: 100,
           avg_tps: 10,
@@ -32,7 +35,6 @@ describe('model hourly status row', () => {
     )
 
     expect(screen.getByText('example-model')).toBeInTheDocument()
-    expect(screen.getByText(/gpt_sale/)).toBeInTheDocument()
     const timeline = screen.getByLabelText('Recent status')
     const cells = within(timeline).getAllByTitle(/./)
     expect(cells).toHaveLength(24)
@@ -46,5 +48,48 @@ describe('model hourly status row', () => {
       'title',
       expect.stringContaining('requests')
     )
+  })
+
+  test('groups model rows by billing group and uses display names', () => {
+    const hourlySeries: PublicStatusPoint[] = []
+    const groups = groupPublicModelStatuses([
+      {
+        model_name: 'gpt-5.6-luna',
+        group: 'gpt_sale',
+        group_display_name: '0.1倍率分组',
+        avg_latency_ms: 100,
+        success_rate: 100,
+        avg_tps: 1,
+        hourly_series: hourlySeries,
+      },
+      {
+        model_name: 'gpt-5.6-sol',
+        group: '0.05羊毛',
+        group_display_name: '0.05倍率分组',
+        avg_latency_ms: 100,
+        success_rate: 100,
+        avg_tps: 1,
+        hourly_series: hourlySeries,
+      },
+      {
+        model_name: 'gpt-5.6-sol',
+        group: 'gpt_sale',
+        group_display_name: '0.1倍率分组',
+        avg_latency_ms: 100,
+        success_rate: 100,
+        avg_tps: 1,
+        hourly_series: hourlySeries,
+      },
+    ])
+
+    expect(groups.map((group) => group.group)).toEqual([
+      '0.05羊毛',
+      'gpt_sale',
+    ])
+    expect(groups[1].displayName).toBe('0.1倍率分组')
+    expect(groups[1].models.map((model) => model.model_name)).toEqual([
+      'gpt-5.6-luna',
+      'gpt-5.6-sol',
+    ])
   })
 })
