@@ -37,6 +37,41 @@ import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 
 const SKELETON_IDS = ['one', 'two', 'three', 'four', 'five', 'six']
+const PREFERRED_GROUP_ORDER = ['0.05羊毛', 'gpt_sale']
+
+export type PublicModelStatusGroup = {
+  group: string
+  displayName: string
+  models: PublicModelStatusItem[]
+}
+
+export function groupPublicModelStatuses(
+  models: PublicModelStatusItem[]
+): PublicModelStatusGroup[] {
+  const grouped = new Map<string, PublicModelStatusGroup>()
+  for (const model of models) {
+    const current = grouped.get(model.group)
+    if (current) {
+      current.models.push(model)
+      continue
+    }
+    grouped.set(model.group, {
+      group: model.group,
+      displayName: model.group_display_name || model.group,
+      models: [model],
+    })
+  }
+  return Array.from(grouped.values()).sort((left, right) => {
+    const leftIndex = PREFERRED_GROUP_ORDER.indexOf(left.group)
+    const rightIndex = PREFERRED_GROUP_ORDER.indexOf(right.group)
+    if (leftIndex >= 0 || rightIndex >= 0) {
+      if (leftIndex < 0) return 1
+      if (rightIndex < 0) return -1
+      return leftIndex - rightIndex
+    }
+    return left.displayName.localeCompare(right.displayName)
+  })
+}
 
 function statusLabelKey(level: ReturnType<typeof getSuccessRateLevel>): string {
   if (level === 'critical') return 'Outage'
@@ -66,9 +101,6 @@ export const ModelStatusRow = memo(function ModelStatusRow(props: {
     <div className='grid min-w-[920px] grid-cols-[minmax(12rem,1fr)_6rem_7rem_minmax(30rem,2fr)] items-center gap-4 border-b px-4 py-3 last:border-b-0'>
       <div className='min-w-0'>
         <div className='truncate font-medium'>{props.model.model_name}</div>
-        <div className='text-muted-foreground truncate text-xs'>
-          {t('Group')}: {props.model.group}
-        </div>
       </div>
       <div
         className={cn(
@@ -126,6 +158,7 @@ export function PublicModelStatus() {
   })
   const overall = query.data?.data.overall_success_rate ?? Number.NaN
   const models = query.data?.data.models ?? []
+  const modelGroups = groupPublicModelStatuses(models)
   const level = getSuccessRateLevel(overall)
   const isHealthy = level === 'excellent' || level === 'good'
   const headline = t(statusLabelKey(level))
@@ -197,22 +230,31 @@ export function PublicModelStatus() {
             </div>
           </CardContent>
         </Card>
-        <Card className='overflow-x-auto py-0'>
-          <div className='min-w-[920px]'>
-            <div className='text-muted-foreground grid grid-cols-[minmax(12rem,1fr)_6rem_7rem_minmax(30rem,2fr)] gap-4 border-b px-4 py-2 text-xs font-medium'>
-              <div>{t('Model')}</div>
-              <div className='text-right'>{t('Success rate')}</div>
-              <div className='text-right'>{t('Latency')}</div>
-              <div>{t('Recent status')}</div>
+        {modelGroups.map((modelGroup) => (
+          <Card
+            key={modelGroup.group}
+            className='overflow-x-auto py-0'
+            data-status-group={modelGroup.group}
+          >
+            <div className='min-w-[920px]'>
+              <div className='border-b px-4 py-3'>
+                <h2 className='font-semibold'>{modelGroup.displayName}</h2>
+              </div>
+              <div className='text-muted-foreground grid grid-cols-[minmax(12rem,1fr)_6rem_7rem_minmax(30rem,2fr)] gap-4 border-b px-4 py-2 text-xs font-medium'>
+                <div>{t('Model')}</div>
+                <div className='text-right'>{t('Success rate')}</div>
+                <div className='text-right'>{t('Latency')}</div>
+                <div>{t('Recent status')}</div>
+              </div>
+              {modelGroup.models.map((model) => (
+                <ModelStatusRow
+                  key={`${model.model_name}:${model.group}`}
+                  model={model}
+                />
+              ))}
             </div>
-            {models.map((model) => (
-              <ModelStatusRow
-                key={`${model.model_name}:${model.group}`}
-                model={model}
-              />
-            ))}
-          </div>
-        </Card>
+          </Card>
+        ))}
       </>
     )
   }

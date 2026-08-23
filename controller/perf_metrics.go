@@ -48,6 +48,7 @@ func GetPublicModelStatus(c *gin.Context) {
 			models = append(models, gin.H{
 				"model_name":           item.ModelName,
 				"group":                group.Group,
+				"group_display_name":   setting.GetUsableGroupDescription(group.Group),
 				"avg_latency_ms":       group.AvgLatencyMs,
 				"success_rate":         group.SuccessRate,
 				"avg_tps":              group.AvgTps,
