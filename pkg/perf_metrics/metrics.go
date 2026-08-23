@@ -87,11 +87,17 @@ func Query(params QueryParams) (QueryResult, error) {
 	startTs := endTs - int64(params.Hours)*3600
 
 	merged := map[bucketKey]counters{}
+	allowedGroups := allowedGroupSet(params.AllowedGroups)
 	rows, err := model.GetPerfMetrics(params.Model, params.Group, startTs, endTs)
 	if err != nil {
 		return QueryResult{}, err
 	}
 	for _, row := range rows {
+		if allowedGroups != nil {
+			if _, ok := allowedGroups[row.Group]; !ok {
+				continue
+			}
+		}
 		mergeCounters(merged, bucketKey{
 			model:    row.ModelName,
 			group:    row.Group,
@@ -114,6 +120,11 @@ func Query(params QueryParams) (QueryResult, error) {
 		}
 		if params.Group != "" && k.group != params.Group {
 			return true
+		}
+		if allowedGroups != nil {
+			if _, ok := allowedGroups[k.group]; !ok {
+				return true
+			}
 		}
 		mergeCounters(merged, k, value.(*atomicBucket).snapshot())
 		return true

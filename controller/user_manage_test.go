@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 
 	"github.com/gin-gonic/gin"
@@ -98,7 +99,7 @@ func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T)
 	now := time.Now().Unix()
 	user := model.User{
 		Username: "managed-demote-user", Password: "password", Role: common.RoleAdminUser,
-		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
+		Status: common.UserStatusEnabled, Group: service.AdminOnlyGroup, AuthVersion: 1,
 	}
 	require.NoError(t, db.Create(&user).Error)
 	for _, sid := range []string{"managed-demote-session-one", "managed-demote-session-two"} {
@@ -123,6 +124,7 @@ func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T)
 	var updated model.User
 	require.NoError(t, db.First(&updated, user.Id).Error)
 	assert.Equal(t, common.RoleCommonUser, updated.Role)
+	assert.Equal(t, "default", updated.Group)
 	assert.EqualValues(t, 2, updated.AuthVersion)
 	var sessions []model.UserSession
 	require.NoError(t, db.Where("user_id = ?", user.Id).Order("sid asc").Find(&sessions).Error)

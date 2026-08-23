@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -16,7 +18,7 @@ import (
 )
 
 func GetPublicModelStatus(c *gin.Context) {
-	activeGroups := lo.Keys(ratio_setting.GetGroupRatioCopy())
+	activeGroups := visibleMetricGroups(c, false)
 	result, err := perfmetrics.QuerySummaryAll(24, activeGroups)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -31,12 +33,13 @@ func GetPublicModelStatus(c *gin.Context) {
 	models := make([]gin.H, 0, len(result.Models))
 	excludedModels := operation_setting.GetMonitorSetting().ExcludedAutoTestModels
 	publicAutoGroups := setting.GetAutoGroups()
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser
 	for _, item := range result.Models {
 		if len(excludeAutomaticChannelTestModels([]string{item.ModelName}, excludedModels)) == 0 {
 			continue
 		}
 		for _, group := range item.Groups {
-			if !publicStatusGroupVisible(item.ModelName, group.Group, publicAutoGroups) {
+			if !isAdmin && !publicStatusGroupVisible(item.ModelName, group.Group, publicAutoGroups) {
 				continue
 			}
 			hourlySeries := make([]gin.H, 0, len(group.HourlySeries))
@@ -82,6 +85,31 @@ func publicStatusGroupVisible(modelName, group string, autoGroups []string) bool
 	return lo.Contains(autoGroups, group)
 }
 
+func visibleMetricGroups(c *gin.Context, includeAuto bool) []string {
+	activeRatios := ratio_setting.GetGroupRatioCopy()
+	role := c.GetInt("role")
+	groups := make([]string, 0, len(activeRatios)+1)
+	if role >= common.RoleAdminUser {
+		groups = append(groups, lo.Keys(activeRatios)...)
+	} else {
+		usable := service.GetUserUsableGroupsForRole(c.GetString("group"), role)
+		for group := range activeRatios {
+			if _, ok := usable[group]; ok {
+				groups = append(groups, group)
+			}
+		}
+	}
+	if includeAuto {
+		usable := service.GetUserUsableGroupsForRole(c.GetString("group"), role)
+		if role >= common.RoleAdminUser {
+			groups = append(groups, "auto")
+		} else if _, ok := usable["auto"]; ok {
+			groups = append(groups, "auto")
+		}
+	}
+	return groups
+}
+
 func GetPerfMetricsSummary(c *gin.Context) {
 	hours := 24
 	if rawHours := c.Query("hours"); rawHours != "" {
@@ -90,7 +118,7 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		}
 	}
 
-	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	activeGroups := visibleMetricGroups(c, true)
 	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -123,10 +151,20 @@ func GetPerfMetrics(c *gin.Context) {
 		}
 	}
 
+	visibleGroups := visibleMetricGroups(c, true)
+	requestedGroup := c.Query("group")
+	if requestedGroup != "" && !lo.Contains(visibleGroups, requestedGroup) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "group is not available",
+		})
+		return
+	}
 	result, err := perfmetrics.Query(perfmetrics.QueryParams{
-		Model: modelName,
-		Group: c.Query("group"),
-		Hours: hours,
+		Model:         modelName,
+		Group:         requestedGroup,
+		AllowedGroups: visibleGroups,
+		Hours:         hours,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -136,7 +174,7 @@ func GetPerfMetrics(c *gin.Context) {
 		return
 	}
 
-	result.Groups = filterActiveGroups(result.Groups)
+	result.Groups = filterVisibleGroups(result.Groups, visibleGroups)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -145,9 +183,16 @@ func GetPerfMetrics(c *gin.Context) {
 }
 
 func filterActiveGroups(groups []perfmetrics.GroupResult) []perfmetrics.GroupResult {
-	activeRatios := ratio_setting.GetGroupRatioCopy()
+	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	return filterVisibleGroups(groups, activeGroups)
+}
+
+func filterVisibleGroups(groups []perfmetrics.GroupResult, visibleGroups []string) []perfmetrics.GroupResult {
+	visible := lo.SliceToMap(visibleGroups, func(group string) (string, struct{}) {
+		return group, struct{}{}
+	})
 	return lo.Filter(groups, func(g perfmetrics.GroupResult, _ int) bool {
-		_, ok := activeRatios[g.Group]
-		return ok || g.Group == "auto"
+		_, ok := visible[g.Group]
+		return ok
 	})
 }

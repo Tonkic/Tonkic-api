@@ -11,6 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const AdminOnlyGroup = "all-with-team"
+
+func IsAdminOnlyGroup(group string) bool {
+	return strings.TrimSpace(group) == AdminOnlyGroup
+}
+
 func GetUserUsableGroups(userGroup string) map[string]string {
 	groupsCopy := setting.GetUserUsableGroupsCopy()
 	if userGroup != "" {
@@ -40,6 +46,26 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 	return groupsCopy
 }
 
+func GetUserUsableGroupsForRole(userGroup string, role int) map[string]string {
+	groups := GetUserUsableGroups(userGroup)
+	if role < common.RoleAdminUser {
+		delete(groups, AdminOnlyGroup)
+	}
+	return groups
+}
+
+func IsGroupUsableForRole(userGroup, groupName string, role int) bool {
+	_, ok := GetUserUsableGroupsForRole(userGroup, role)[groupName]
+	return ok
+}
+
+func IsUserSelectableGroupForRole(userGroup, groupName string, role int) bool {
+	if groupName == "" || groupName == "auto" {
+		return false
+	}
+	return IsGroupUsableForRole(userGroup, groupName, role) && ratio_setting.ContainsGroupRatio(groupName)
+}
+
 func GroupInUserUsableGroups(userGroup, groupName string) bool {
 	_, ok := GetUserUsableGroups(userGroup)[groupName]
 	return ok
@@ -54,10 +80,14 @@ func IsUserSelectableGroup(userGroup, groupName string) bool {
 
 // GetUserAutoGroup 根据用户分组获取自动分组设置
 func GetUserAutoGroup(userGroup string) []string {
+	return GetUserAutoGroupForRole(userGroup, common.RoleCommonUser)
+}
+
+func GetUserAutoGroupForRole(userGroup string, role int) []string {
 	autoGroups := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, group := range setting.GetAutoGroups() {
-		if !IsUserSelectableGroup(userGroup, group) {
+		if !IsUserSelectableGroupForRole(userGroup, group, role) {
 			continue
 		}
 		if _, ok := seen[group]; ok {
@@ -95,15 +125,35 @@ func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
 // The absence of the context value means that the token inherits the complete
 // global Auto list; a present (even empty) value is an explicit token snapshot.
 func GetRequestAutoGroups(c *gin.Context, userGroup string) []string {
+	role := c.GetInt("role")
+	if role == 0 {
+		role = common.RoleCommonUser
+	}
 	value, ok := common.GetContextKey(c, constant.ContextKeyTokenAutoGroups)
 	if !ok {
-		return GetUserAutoGroup(userGroup)
+		return GetUserAutoGroupForRole(userGroup, role)
 	}
 	groups, ok := value.([]string)
 	if !ok {
 		return []string{}
 	}
-	return FilterUserTokenAutoGroups(userGroup, groups)
+	maxCount := setting.GetMaxTokenAutoGroups()
+	filtered := make([]string, 0, min(len(groups), maxCount))
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		if !IsUserSelectableGroupForRole(userGroup, group, role) {
+			continue
+		}
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		filtered = append(filtered, group)
+		if len(filtered) == maxCount {
+			break
+		}
+	}
+	return filtered
 }
 
 // GetGroupsEnabledModels 按 groups 顺序获取各分组启用的模型并去重

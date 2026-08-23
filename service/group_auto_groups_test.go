@@ -70,3 +70,20 @@ func TestGetRequestAutoGroupsDoesNotFallBackAfterPermissionChange(t *testing.T) 
 
 	assert.Empty(t, groups)
 }
+
+func TestAdminOnlyGroupIsRemovedForOrdinaryUsers(t *testing.T) {
+	configureRequestAutoGroupsTest(t)
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","all-with-team":"Internal"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"all-with-team":1}`))
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["all-with-team","default"]`))
+
+	ordinaryGroups := GetUserUsableGroupsForRole("all-with-team", common.RoleCommonUser)
+	_, ordinaryHasInternal := ordinaryGroups[AdminOnlyGroup]
+	assert.False(t, ordinaryHasInternal)
+	assert.Equal(t, []string{"default"}, GetUserAutoGroupForRole("all-with-team", common.RoleCommonUser))
+
+	adminGroups := GetUserUsableGroupsForRole("all-with-team", common.RoleAdminUser)
+	_, adminHasInternal := adminGroups[AdminOnlyGroup]
+	assert.True(t, adminHasInternal)
+	assert.Equal(t, []string{"all-with-team", "default"}, GetUserAutoGroupForRole("all-with-team", common.RoleAdminUser))
+}

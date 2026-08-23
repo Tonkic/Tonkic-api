@@ -641,7 +641,7 @@ func GetUserModels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	groups := service.GetUserUsableGroups(user.Group)
+	groups := service.GetUserUsableGroupsForRole(user.Group, user.Role)
 	group := c.Query("group")
 	var groupsToQuery []string
 	switch {
@@ -651,7 +651,7 @@ func GetUserModels(c *gin.Context) {
 		}
 	case group == "auto":
 		if _, ok := groups[group]; ok {
-			groupsToQuery = service.GetUserAutoGroup(user.Group)
+			groupsToQuery = service.GetUserAutoGroupForRole(user.Group, user.Role)
 		}
 	default:
 		if _, ok := groups[group]; ok {
@@ -694,6 +694,10 @@ func UpdateUser(c *gin.Context) {
 		return
 	}
 	updatedUser.Role = originUser.Role
+	if updatedUser.Role < common.RoleAdminUser && service.IsAdminOnlyGroup(updatedUser.Group) {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, originUser.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
@@ -1163,6 +1167,9 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		user.Role = common.RoleCommonUser
+		if service.IsAdminOnlyGroup(user.Group) {
+			user.Group = "default"
+		}
 	case "add_quota":
 		switch req.Mode {
 		case "add":

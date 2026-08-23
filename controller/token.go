@@ -76,6 +76,18 @@ func getTokenRequestUserGroup(c *gin.Context) (string, error) {
 	return model.GetUserGroup(c.GetInt("id"), false)
 }
 
+func validateTokenGroupForRole(c *gin.Context, group string) bool {
+	if !service.IsAdminOnlyGroup(group) {
+		return true
+	}
+	userGroup, err := getTokenRequestUserGroup(c)
+	if err == nil && service.IsUserSelectableGroupForRole(userGroup, group, c.GetInt("role")) {
+		return true
+	}
+	common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupsInvalid, map[string]any{"Group": group})
+	return false
+}
+
 func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
 	if len(groups) == 0 {
 		if err := token.SetAutoGroups(nil); err != nil {
@@ -103,7 +115,7 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 			return false
 		}
 		seen[group] = struct{}{}
-		if !service.IsUserSelectableGroup(userGroup, group) {
+		if !service.IsUserSelectableGroupForRole(userGroup, group, c.GetInt("role")) {
 			common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupsInvalid, map[string]any{"Group": group})
 			return false
 		}
@@ -273,6 +285,9 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if !validateTokenGroupForRole(c, token.Group) {
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -366,6 +381,9 @@ func UpdateToken(c *gin.Context) {
 	token := request.Token
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
+		return
+	}
+	if statusOnly == "" && !validateTokenGroupForRole(c, token.Group) {
 		return
 	}
 	if !token.UnlimitedQuota {

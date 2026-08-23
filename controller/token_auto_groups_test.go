@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -231,4 +232,40 @@ func TestGetTokenAutoGroupsReturnsFullFilteredGlobalOrderAndLimit(t *testing.T) 
 	require.NoError(t, common.Unmarshal(response.Data, &data))
 	assert.Equal(t, []string{"vip", "default"}, data.Groups)
 	assert.Equal(t, 1, data.MaxCount)
+}
+
+func TestAddTokenRejectsAdminOnlyGroupForOrdinaryUser(t *testing.T) {
+	configureTokenAutoGroupsTest(t, "5", `["default"]`)
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","all-with-team":"Internal"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"all-with-team":1}`))
+	user := setupTokenAutoGroupsControllerTest(t)
+	request := baseAutoTokenRequest("admin-only")
+	request["group"] = service.AdminOnlyGroup
+
+	ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
+	ctx.Set("role", common.RoleCommonUser)
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	assert.False(t, response.Success)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.Token{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestAddTokenAllowsAdminOnlyGroupForAdmin(t *testing.T) {
+	configureTokenAutoGroupsTest(t, "5", `["default"]`)
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"all-with-team":1}`))
+	user := setupTokenAutoGroupsControllerTest(t)
+	request := baseAutoTokenRequest("admin-only")
+	request["group"] = service.AdminOnlyGroup
+
+	ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
+	ctx.Set("role", common.RoleAdminUser)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, service.AdminOnlyGroup)
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
 }

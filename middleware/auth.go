@@ -465,12 +465,17 @@ func TokenAuth() func(c *gin.Context) {
 		}
 
 		userCache.WriteContext(c)
+		c.Set("role", userCache.Role)
 
 		userGroup := userCache.Group
+		if service.IsAdminOnlyGroup(userGroup) && userCache.Role < common.RoleAdminUser {
+			abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", userGroup))
+			return
+		}
 		tokenGroup := token.Group
 		if tokenGroup != "" {
 			// check common.UserUsableGroups[userGroup]
-			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
+			if !service.IsGroupUsableForRole(userGroup, tokenGroup, userCache.Role) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
 				return
 			}

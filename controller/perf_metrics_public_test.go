@@ -19,13 +19,14 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestGetPublicModelStatusReturnsAllActiveGroupsWithoutCountsOrChannels(t *testing.T) {
+func TestGetPublicModelStatusReturnsOnlyUserVisibleGroupsWithoutCountsOrChannels(t *testing.T) {
 	initModelListColumnNames(t)
 	previousDB := model.DB
 	previousMainDatabaseType := common.MainDatabaseType()
 	previousLogDatabaseType := common.LogDatabaseType()
 	previousAutoGroups := setting.AutoGroups2JsonString()
 	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
+	previousUsableGroups := setting.UserUsableGroups2JSONString()
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -33,11 +34,13 @@ func TestGetPublicModelStatusReturnsAllActiveGroupsWithoutCountsOrChannels(t *te
 	model.DB = db
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["default","vip"]`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1,"svip":1}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
 	})
 
 	now := time.Now().Unix()
@@ -80,7 +83,7 @@ func TestGetPublicModelStatusReturnsAllActiveGroupsWithoutCountsOrChannels(t *te
 	require.Equal(t, http.StatusOK, response.Code)
 	require.True(t, payload.Success)
 	assert.Equal(t, 24, payload.Data.WindowHours)
-	require.Len(t, payload.Data.Models, 3)
+	require.Len(t, payload.Data.Models, 2)
 	groups := lo.Map(payload.Data.Models, func(item struct {
 		ModelName    string  `json:"model_name"`
 		Group        string  `json:"group"`
@@ -92,9 +95,9 @@ func TestGetPublicModelStatusReturnsAllActiveGroupsWithoutCountsOrChannels(t *te
 	}, _ int) string {
 		return item.Group
 	})
-	assert.ElementsMatch(t, []string{"default", "vip", "svip"}, groups)
+	assert.ElementsMatch(t, []string{"default", "vip"}, groups)
 	assert.Equal(t, "example-model", payload.Data.Models[0].ModelName)
-	assert.InDelta(t, 40, payload.Data.OverallSuccessRate, 0.01)
+	assert.InDelta(t, 93.33, payload.Data.OverallSuccessRate, 0.01)
 	require.Len(t, payload.Data.Models[0].HourlySeries, 24)
 	for index := 1; index < len(payload.Data.Models[0].HourlySeries); index++ {
 		assert.Equal(t, int64(3600), payload.Data.Models[0].HourlySeries[index].Ts-payload.Data.Models[0].HourlySeries[index-1].Ts)
@@ -105,6 +108,64 @@ func TestGetPublicModelStatusReturnsAllActiveGroupsWithoutCountsOrChannels(t *te
 	assert.NotContains(t, response.Body.String(), `"request_count"`)
 	assert.NotContains(t, response.Body.String(), `"channel_id"`)
 	assert.NotContains(t, response.Body.String(), `"channel_name"`)
+	assert.NotContains(t, response.Body.String(), "svip")
+}
+
+func TestGetPublicModelStatusReturnsAllActiveGroupsForAdmin(t *testing.T) {
+	initModelListColumnNames(t)
+	previousDB := model.DB
+	previousMainDatabaseType := common.MainDatabaseType()
+	previousLogDatabaseType := common.LogDatabaseType()
+	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
+	model.DB = db
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"all-with-team":1}`))
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
+	})
+
+	now := time.Now().Unix()
+	for _, group := range []string{"default", "all-with-team"} {
+		require.NoError(t, db.Create(&model.PerfMetric{
+			ModelName: "claude-opus-4-6", Group: group, BucketTs: now - 60,
+			RequestCount: 1, SuccessCount: 1, TotalLatencyMs: 100,
+		}).Error)
+	}
+
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Set("role", common.RoleAdminUser)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/status/models", nil)
+	GetPublicModelStatus(context)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), "all-with-team")
+}
+
+func TestVisibleMetricGroupsHideAdminOnlyGroupFromOrdinaryUsers(t *testing.T) {
+	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
+	previousUsableGroups := setting.UserUsableGroups2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"all-with-team":1}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","all-with-team":"Internal","auto":"Auto"}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
+	})
+
+	ordinary, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ordinary.Set("role", common.RoleCommonUser)
+	ordinary.Set("group", "default")
+	assert.ElementsMatch(t, []string{"default", "auto"}, visibleMetricGroups(ordinary, true))
+
+	admin, _ := gin.CreateTestContext(httptest.NewRecorder())
+	admin.Set("role", common.RoleAdminUser)
+	admin.Set("group", "all-with-team")
+	assert.ElementsMatch(t, []string{"default", "all-with-team", "auto"}, visibleMetricGroups(admin, true))
 }
 
 func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
