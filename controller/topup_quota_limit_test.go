@@ -119,12 +119,16 @@ func TestRequestAmountRejectsTopUpThatCannotBeSettled(t *testing.T) {
 	assert.JSONEq(t, `{"message":"error","data":"单笔充值数量不能大于 4294"}`, recorder.Body.String())
 }
 
-func TestRequestAmountRejectsTopUpThatWouldOverflowWallet(t *testing.T) {
+func TestRequestAmountPreviewsTopUpEvenWhenWalletIsOverCapacity(t *testing.T) {
 	oldQuotaPerUnit := common.QuotaPerUnit
 	oldDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
+	oldPrice := operation_setting.Price
+	oldMinTopUp := operation_setting.MinTopUp
 	oldDB := model.DB
 	common.QuotaPerUnit = 500000
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
+	operation_setting.Price = 1
+	operation_setting.MinTopUp = 1
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -133,6 +137,8 @@ func TestRequestAmountRejectsTopUpThatWouldOverflowWallet(t *testing.T) {
 	t.Cleanup(func() {
 		common.QuotaPerUnit = oldQuotaPerUnit
 		operation_setting.GetGeneralSetting().QuotaDisplayType = oldDisplayType
+		operation_setting.Price = oldPrice
+		operation_setting.MinTopUp = oldMinTopUp
 		model.DB = oldDB
 		sqlDB, dbErr := db.DB()
 		if dbErr == nil {
@@ -143,7 +149,7 @@ func TestRequestAmountRejectsTopUpThatWouldOverflowWallet(t *testing.T) {
 	require.NoError(t, model.DB.Create(&model.User{
 		Id:       42,
 		Username: "topup_capacity_user",
-		Quota:    1_000_000,
+		Quota:    common.MaxQuota,
 		Status:   common.UserStatusEnabled,
 	}).Error)
 
@@ -154,14 +160,32 @@ func TestRequestAmountRejectsTopUpThatWouldOverflowWallet(t *testing.T) {
 	ctx.Request = httptest.NewRequest(
 		http.MethodPost,
 		"/api/user/amount",
-		strings.NewReader(`{"amount":4294}`),
+		strings.NewReader(`{"amount":1}`),
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
 	RequestAmount(ctx)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.JSONEq(t, `{"message":"error","data":"top-up quota limit exceeded"}`, recorder.Body.String())
+	assert.JSONEq(t, `{"message":"success","data":"1.00"}`, recorder.Body.String())
+}
+
+func TestGetTopUpInfoIncludesOneUnitPreset(t *testing.T) {
+	original := append([]int(nil), operation_setting.GetPaymentSetting().AmountOptions...)
+	operation_setting.GetPaymentSetting().AmountOptions = []int{1, 5, 10}
+	t.Cleanup(func() {
+		operation_setting.GetPaymentSetting().AmountOptions = original
+	})
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/user/topup/info", nil)
+
+	GetTopUpInfo(ctx)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"amount_options":[1,5,10]`)
 }
 
 func TestValidateCreditedQuotaRejectsOverflow(t *testing.T) {
