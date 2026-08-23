@@ -37,7 +37,7 @@ import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 
 const SKELETON_IDS = ['one', 'two', 'three', 'four', 'five', 'six']
-const PREFERRED_GROUP_ORDER = ['0.05羊毛', 'gpt_sale']
+const PREFERRED_GROUP_ORDER = ['0.05羊毛', '0.1']
 
 export type PublicModelStatusGroup = {
   group: string

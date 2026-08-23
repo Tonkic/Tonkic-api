@@ -166,16 +166,16 @@ func TestCacheGetRandomSatisfiedChannelExcludesFailedChannelAndAdvancesAutoGroup
 	db := setupChannelSelectAutoGroupsTest(t)
 	common.RetryTimes = 1
 	const modelName = "auto-groups-cross-group-retry-model"
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","0.05羊毛":"0.05羊毛","gpt_sale":"GPT Sale"}`))
-	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"0.05羊毛":0.05,"gpt_sale":0.5}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","0.05羊毛":"0.05羊毛","0.1":"0.1倍率分组"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"0.05羊毛":0.05,"0.1":0.1}`))
 	createChannelSelectAutoGroupsChannel(t, db, 7, "0.05羊毛", modelName)
-	createChannelSelectAutoGroupsChannel(t, db, 3, "gpt_sale", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 3, "0.1", modelName)
 	model.InitChannelCache()
 
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
-	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"0.05羊毛", "gpt_sale"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"0.05羊毛", "0.1"})
 	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
 
 	retry := 0
@@ -199,7 +199,7 @@ func TestCacheGetRandomSatisfiedChannelExcludesFailedChannelAndAdvancesAutoGroup
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	assert.Equal(t, 3, second.Id)
-	assert.Equal(t, "gpt_sale", selectedGroup)
+	assert.Equal(t, "0.1", selectedGroup)
 	assert.NotEqual(t, first.Id, second.Id)
 }
 

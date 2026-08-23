@@ -120,9 +120,9 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
 	model.DB = db
-	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["0.05羊毛","gpt_sale"]`))
-	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"0.05羊毛":0.05,"gpt_sale":0.5,"all-with-team":1}`))
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"0.05羊毛":"0.05倍率分组","gpt_sale":"0.1倍率分组"}`))
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["0.05羊毛","0.1"]`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"0.05羊毛":0.05,"0.1":0.1,"all-with-team":1}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"0.05羊毛":"0.05倍率分组","0.1":"0.1倍率分组"}`))
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
@@ -134,7 +134,7 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 	now := time.Now().Unix()
 	for _, metric := range []model.PerfMetric{
 		{ModelName: "gpt-5.6-sol", Group: "0.05羊毛", BucketTs: now - 60, RequestCount: 1, SuccessCount: 1, TotalLatencyMs: 100},
-		{ModelName: "gpt-5.6-sol", Group: "gpt_sale", BucketTs: now - 60, RequestCount: 9, SuccessCount: 0, TotalLatencyMs: 900},
+		{ModelName: "gpt-5.6-sol", Group: "0.1", BucketTs: now - 60, RequestCount: 9, SuccessCount: 0, TotalLatencyMs: 900},
 		{ModelName: "gpt-5.6-sol", Group: "all-with-team", BucketTs: now - 60, RequestCount: 50, SuccessCount: 50, TotalLatencyMs: 5000},
 	} {
 		require.NoError(t, db.Create(&metric).Error)
@@ -166,7 +166,7 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 	}, _ int) string {
 		return item.Group
 	})
-	assert.ElementsMatch(t, []string{"0.05羊毛", "gpt_sale"}, groups)
+	assert.ElementsMatch(t, []string{"0.05羊毛", "0.1"}, groups)
 	displayNames := lo.Map(payload.Data.Models, func(item struct {
 		ModelName        string  `json:"model_name"`
 		Group            string  `json:"group"`

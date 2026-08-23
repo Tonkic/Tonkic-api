@@ -24,7 +24,7 @@ describe('model hourly status row', () => {
       <ModelStatusRow
         model={{
           model_name: 'example-model',
-          group: 'gpt_sale',
+          group: '0.1',
           group_display_name: '0.1倍率分组',
           avg_latency_ms: 250,
           success_rate: 100,
@@ -55,7 +55,7 @@ describe('model hourly status row', () => {
     const groups = groupPublicModelStatuses([
       {
         model_name: 'gpt-5.6-luna',
-        group: 'gpt_sale',
+        group: '0.1',
         group_display_name: '0.1倍率分组',
         avg_latency_ms: 100,
         success_rate: 100,
@@ -73,7 +73,7 @@ describe('model hourly status row', () => {
       },
       {
         model_name: 'gpt-5.6-sol',
-        group: 'gpt_sale',
+        group: '0.1',
         group_display_name: '0.1倍率分组',
         avg_latency_ms: 100,
         success_rate: 100,
@@ -84,7 +84,7 @@ describe('model hourly status row', () => {
 
     expect(groups.map((group) => group.group)).toEqual([
       '0.05羊毛',
-      'gpt_sale',
+      '0.1',
     ])
     expect(groups[1].displayName).toBe('0.1倍率分组')
     expect(groups[1].models.map((model) => model.model_name)).toEqual([
