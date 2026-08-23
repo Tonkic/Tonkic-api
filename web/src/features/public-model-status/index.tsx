@@ -66,6 +66,9 @@ export const ModelStatusRow = memo(function ModelStatusRow(props: {
     <div className='grid min-w-[920px] grid-cols-[minmax(12rem,1fr)_6rem_7rem_minmax(30rem,2fr)] items-center gap-4 border-b px-4 py-3 last:border-b-0'>
       <div className='min-w-0'>
         <div className='truncate font-medium'>{props.model.model_name}</div>
+        <div className='text-muted-foreground truncate text-xs'>
+          {t('Group')}: {props.model.group}
+        </div>
       </div>
       <div
         className={cn(
@@ -203,7 +206,10 @@ export function PublicModelStatus() {
               <div>{t('Recent status')}</div>
             </div>
             {models.map((model) => (
-              <ModelStatusRow key={model.model_name} model={model} />
+              <ModelStatusRow
+                key={`${model.model_name}:${model.group}`}
+                model={model}
+              />
             ))}
           </div>
         </Card>

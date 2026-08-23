@@ -72,6 +72,7 @@ export type PublicModelStatusData = {
 }
 
 export type PublicModelStatus = Omit<PerfModelSummary, 'request_count'> & {
+  group: string
   hourly_series: PublicStatusPoint[]
 }
 
