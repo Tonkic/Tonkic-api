@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +30,18 @@ type RiskScanSummary struct {
 	GroupsDetected int `json:"groups_detected"`
 	CasesUpdated   int `json:"cases_updated"`
 	UsersBanned    int `json:"users_banned"`
+}
+
+// normalizeRiskAssociationIP returns only globally routable client addresses.
+// Local, private and special-purpose addresses remain in the source event
+// timeline, but must never be used to associate identities across accounts.
+func normalizeRiskAssociationIP(value string) (string, bool) {
+	normalized := model.NormalizeSecurityIP(value)
+	parsed := net.ParseIP(normalized)
+	if parsed == nil || common.IsPrivateIP(parsed) {
+		return "", false
+	}
+	return normalized, true
 }
 
 // RunRiskScan groups recent API activity and registration/login events by
@@ -82,7 +95,11 @@ func RunRiskScan(ctx context.Context) (RiskScanSummary, error) {
 		return summary, err
 	}
 	for _, row := range rows {
-		member := ensureAggregate(row.IP, row.UserID)
+		ip, usable := normalizeRiskAssociationIP(row.IP)
+		if !usable {
+			continue
+		}
+		member := ensureAggregate(ip, row.UserID)
 		member.Count += row.Count
 		member.APIRequestCount += row.Count
 		member.FirstAt = row.FirstAt
@@ -93,7 +110,11 @@ func RunRiskScan(ctx context.Context) (RiskScanSummary, error) {
 		return summary, err
 	}
 	for _, event := range securityEvents {
-		member := ensureAggregate(event.IP, event.UserID)
+		ip, usable := normalizeRiskAssociationIP(event.IP)
+		if !usable {
+			continue
+		}
+		member := ensureAggregate(ip, event.UserID)
 		member.Count++
 		if event.EventType == "register" {
 			member.RegistrationCount++
