@@ -39,6 +39,9 @@ func GetPublicModelStatus(c *gin.Context) {
 			continue
 		}
 		for _, group := range item.Groups {
+			if isHiddenPublicStatusModelGroup(item.ModelName, group.Group) {
+				continue
+			}
 			if !isAdmin && !publicStatusGroupVisible(item.ModelName, group.Group, publicAutoGroups) {
 				continue
 			}
@@ -76,6 +79,10 @@ func GetPublicModelStatus(c *gin.Context) {
 			"models":               models,
 		},
 	})
+}
+
+func isHiddenPublicStatusModelGroup(modelName, group string) bool {
+	return strings.EqualFold(strings.TrimSpace(modelName), "gpt-5.6-luna") && strings.TrimSpace(group) == "0.1"
 }
 
 func publicStatusGroupVisible(modelName, group string, autoGroups []string) bool {
