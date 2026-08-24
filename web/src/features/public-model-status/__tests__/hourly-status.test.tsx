@@ -18,21 +18,18 @@ describe('model hourly status row', () => {
     const hourlySeries = Array.from({ length: 24 }, (_, index) => ({
       ts: 1_800_000_000 + index * 3600,
       success_rate: index === 0 ? null : 100,
-      request_count: index === 0 ? 0 : 1,
     }))
 
-    const { container } = render(
+    render(
       <ModelStatusRow
         model={{
           model_name: 'example-model',
-          group: 'gpt_sale',
+          group: '0.1',
           group_display_name: '0.1倍率分组',
           avg_latency_ms: 250,
           success_rate: 100,
           avg_tps: 10,
-          request_count: 23,
           hourly_series: hourlySeries,
-          groups: [],
         }}
       />
     )
@@ -46,7 +43,11 @@ describe('model hourly status row', () => {
       'title',
       expect.stringContaining('No data')
     )
-    expect(container).toHaveTextContent('23 requests in the last 24 hours')
+    expect(screen.queryByText(/23 requests/)).not.toBeInTheDocument()
+    expect(cells[1]).not.toHaveAttribute(
+      'title',
+      expect.stringContaining('requests')
+    )
   })
 
   test('groups model rows by billing group and uses display names', () => {
@@ -54,11 +55,20 @@ describe('model hourly status row', () => {
     const groups = groupPublicModelStatuses([
       {
         model_name: 'gpt-5.6-luna',
-        group: 'gpt_sale',
+        group: '0.1',
         group_display_name: '0.1倍率分组',
         avg_latency_ms: 100,
         success_rate: 100,
         avg_tps: 1,
+        hourly_series: hourlySeries,
+      },
+      {
+        model_name: 'gpt-5.6-luna',
+        group: '0.2',
+        group_display_name: '0.2倍率分组',
+        avg_latency_ms: 0,
+        success_rate: null,
+        avg_tps: 0,
         hourly_series: hourlySeries,
       },
       {
@@ -72,7 +82,7 @@ describe('model hourly status row', () => {
       },
       {
         model_name: 'gpt-5.6-sol',
-        group: 'gpt_sale',
+        group: '0.1',
         group_display_name: '0.1倍率分组',
         avg_latency_ms: 100,
         success_rate: 100,
@@ -83,12 +93,39 @@ describe('model hourly status row', () => {
 
     expect(groups.map((group) => group.group)).toEqual([
       '0.05羊毛',
-      'gpt_sale',
+      '0.1',
+      '0.2',
     ])
     expect(groups[1].displayName).toBe('0.1倍率分组')
     expect(groups[1].models.map((model) => model.model_name)).toEqual([
       'gpt-5.6-luna',
       'gpt-5.6-sol',
     ])
+  })
+
+  test('renders an enabled model without samples as no data', () => {
+    const hourlySeries = Array.from({ length: 24 }, (_, index) => ({
+      ts: 1_800_000_000 + index * 3600,
+      success_rate: null,
+    }))
+    render(
+      <ModelStatusRow
+        model={{
+          model_name: 'gpt-5.6-luna',
+          group: '0.2',
+          group_display_name: '0.2倍率分组',
+          avg_latency_ms: 0,
+          success_rate: null,
+          avg_tps: 0,
+          hourly_series: hourlySeries,
+        }}
+      />
+    )
+
+    expect(screen.getAllByText('—')).toHaveLength(2)
+    expect(screen.getByText('No data')).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Recent status')).getAllByTitle(/No data/)
+    ).toHaveLength(24)
   })
 })

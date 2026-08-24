@@ -66,14 +66,18 @@ export type PublicModelStatusData = {
   data: {
     generated_at: number
     window_hours: number
-    overall_success_rate: number
+    overall_success_rate: number | null
     models: PublicModelStatus[]
   }
 }
 
-export type PublicModelStatus = Omit<PerfModelSummary, 'request_count'> & {
+export type PublicModelStatus = Omit<
+  PerfModelSummary,
+  'request_count' | 'success_rate'
+> & {
   group: string
   group_display_name: string
+  success_rate: number | null
   hourly_series: PublicStatusPoint[]
 }
 

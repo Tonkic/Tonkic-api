@@ -3,10 +3,10 @@ package controller
 import (
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -18,6 +18,7 @@ import (
 )
 
 func GetPublicModelStatus(c *gin.Context) {
+	generatedAt := time.Now().Unix()
 	activeGroups := visibleMetricGroups(c, false)
 	result, err := perfmetrics.QuerySummaryAll(24, activeGroups)
 	if err != nil {
@@ -27,45 +28,59 @@ func GetPublicModelStatus(c *gin.Context) {
 		})
 		return
 	}
+	enabledPairs, err := model.GetEnabledModelGroups(activeGroups)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Unable to load current model capabilities",
+		})
+		return
+	}
 
 	var totalRequests int64
 	var weightedSuccessRate float64
-	models := make([]gin.H, 0, len(result.Models))
+	models := make([]gin.H, 0, len(enabledPairs))
 	excludedModels := operation_setting.GetMonitorSetting().ExcludedAutoTestModels
-	publicAutoGroups := setting.GetAutoGroups()
-	isAdmin := c.GetInt("role") >= common.RoleAdminUser
+	metricByPair := make(map[string]perfmetrics.GroupSummary)
 	for _, item := range result.Models {
-		if len(excludeAutomaticChannelTestModels([]string{item.ModelName}, excludedModels)) == 0 {
+		for _, group := range item.Groups {
+			metricByPair[publicStatusPairKey(group.Group, item.ModelName)] = group
+		}
+	}
+
+	for _, pair := range enabledPairs {
+		if len(excludeAutomaticChannelTestModels([]string{pair.Model}, excludedModels)) == 0 {
 			continue
 		}
-		for _, group := range item.Groups {
-			if isHiddenPublicStatusModelGroup(item.ModelName, group.Group) {
-				continue
-			}
-			if !isAdmin && !publicStatusGroupVisible(item.ModelName, group.Group, publicAutoGroups) {
-				continue
-			}
-			hourlySeries := make([]gin.H, 0, len(group.HourlySeries))
+
+		group, hasMetrics := metricByPair[publicStatusPairKey(pair.Group, pair.Model)]
+		hourlySeries := make([]gin.H, 0, 24)
+		var successRate any
+		if hasMetrics {
 			for _, point := range group.HourlySeries {
 				hourlySeries = append(hourlySeries, gin.H{
 					"ts": point.Ts, "success_rate": point.SuccessRate,
 				})
 			}
-			models = append(models, gin.H{
-				"model_name":           item.ModelName,
-				"group":                group.Group,
-				"group_display_name":   setting.GetUsableGroupDescription(group.Group),
-				"avg_latency_ms":       group.AvgLatencyMs,
-				"success_rate":         group.SuccessRate,
-				"avg_tps":              group.AvgTps,
-				"recent_success_rates": group.RecentSuccessRates,
-				"hourly_series":        hourlySeries,
-			})
+			successRate = group.SuccessRate
 			totalRequests += group.RequestCount
 			weightedSuccessRate += group.SuccessRate * float64(group.RequestCount)
+		} else {
+			hourlySeries = emptyPublicStatusHourlySeries(24, generatedAt)
 		}
+
+		models = append(models, gin.H{
+			"model_name":           pair.Model,
+			"group":                pair.Group,
+			"group_display_name":   setting.GetUsableGroupDescription(pair.Group),
+			"avg_latency_ms":       group.AvgLatencyMs,
+			"success_rate":         successRate,
+			"avg_tps":              group.AvgTps,
+			"recent_success_rates": group.RecentSuccessRates,
+			"hourly_series":        hourlySeries,
+		})
 	}
-	overallSuccessRate := 0.0
+	var overallSuccessRate any
 	if totalRequests > 0 {
 		overallSuccessRate = weightedSuccessRate / float64(totalRequests)
 	}
@@ -73,7 +88,7 @@ func GetPublicModelStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"generated_at":         time.Now().Unix(),
+			"generated_at":         generatedAt,
 			"window_hours":         24,
 			"overall_success_rate": overallSuccessRate,
 			"models":               models,
@@ -81,15 +96,18 @@ func GetPublicModelStatus(c *gin.Context) {
 	})
 }
 
-func isHiddenPublicStatusModelGroup(modelName, group string) bool {
-	return strings.EqualFold(strings.TrimSpace(modelName), "gpt-5.6-luna") && strings.TrimSpace(group) == "0.1"
+func publicStatusPairKey(group, modelName string) string {
+	return group + "\x00" + modelName
 }
 
-func publicStatusGroupVisible(modelName, group string, autoGroups []string) bool {
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "gpt-") {
-		return true
+func emptyPublicStatusHourlySeries(hours int, endTs int64) []gin.H {
+	endHour := endTs - endTs%3600
+	startHour := endHour - int64(hours-1)*3600
+	series := make([]gin.H, 0, hours)
+	for ts := startHour; ts <= endHour; ts += 3600 {
+		series = append(series, gin.H{"ts": ts, "success_rate": nil})
 	}
-	return lo.Contains(autoGroups, group)
+	return series
 }
 
 func visibleMetricGroups(c *gin.Context, includeAuto bool) []string {
