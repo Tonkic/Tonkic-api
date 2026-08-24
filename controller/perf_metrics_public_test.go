@@ -181,6 +181,64 @@ func TestGetPublicModelStatusSplitsGPTAutoGroups(t *testing.T) {
 	assert.NotContains(t, response.Body.String(), `"request_count"`)
 }
 
+func TestGetPublicModelStatusHidesHistoricalLunaFrom01(t *testing.T) {
+	initModelListColumnNames(t)
+	previousDB := model.DB
+	previousMainDatabaseType := common.MainDatabaseType()
+	previousLogDatabaseType := common.LogDatabaseType()
+	previousAutoGroups := setting.AutoGroups2JsonString()
+	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
+	previousUsableGroups := setting.UserUsableGroups2JSONString()
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
+	model.DB = db
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`[]`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"0.1":0.1,"0.2":0.2}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"0.1":"0.1","0.2":"0.2"}`))
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
+	})
+
+	now := time.Now().Unix()
+	for _, metric := range []model.PerfMetric{
+		{ModelName: "gpt-5.6-luna", Group: "0.1", BucketTs: now - 60, RequestCount: 100, SuccessCount: 0, TotalLatencyMs: 10000},
+		{ModelName: "gpt-5.6-luna", Group: "0.2", BucketTs: now - 60, RequestCount: 2, SuccessCount: 2, TotalLatencyMs: 200},
+		{ModelName: "gpt-5.6-sol", Group: "0.1", BucketTs: now - 60, RequestCount: 8, SuccessCount: 8, TotalLatencyMs: 800},
+	} {
+		require.NoError(t, db.Create(&metric).Error)
+	}
+
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Set("role", common.RoleAdminUser)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/status/models", nil)
+	GetPublicModelStatus(context)
+
+	var payload struct {
+		Data struct {
+			OverallSuccessRate float64 `json:"overall_success_rate"`
+			Models             []struct {
+				ModelName string `json:"model_name"`
+				Group     string `json:"group"`
+			} `json:"models"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Len(t, payload.Data.Models, 2)
+	assert.Contains(t, response.Body.String(), `"model_name":"gpt-5.6-luna"`)
+	assert.Contains(t, response.Body.String(), `"group":"0.2"`)
+	assert.Contains(t, response.Body.String(), `"model_name":"gpt-5.6-sol"`)
+	assert.NotContains(t, response.Body.String(), `"model_name":"gpt-5.6-luna","group":"0.1"`)
+	assert.InDelta(t, 100, payload.Data.OverallSuccessRate, 0.01)
+}
+
 func TestGetPublicModelStatusExcludesConfiguredModels(t *testing.T) {
 	initModelListColumnNames(t)
 	previousDB := model.DB
