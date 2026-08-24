@@ -37,7 +37,7 @@ import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 
 const SKELETON_IDS = ['one', 'two', 'three', 'four', 'five', 'six']
-const PREFERRED_GROUP_ORDER = ['0.05羊毛', '0.1']
+const PREFERRED_GROUP_ORDER = ['0.05羊毛', '0.1', '0.2']
 
 export type PublicModelStatusGroup = {
   group: string
@@ -74,6 +74,7 @@ export function groupPublicModelStatuses(
 }
 
 function statusLabelKey(level: ReturnType<typeof getSuccessRateLevel>): string {
+  if (level === 'unknown') return 'No data'
   if (level === 'critical') return 'Outage'
   if (level === 'warning') return 'Degraded performance recently'
   return 'All systems operational'
@@ -89,6 +90,9 @@ function statusAccentClass(
   if (level === 'warning') {
     return kind === 'ring' ? 'ring-amber-500/25' : 'text-amber-500'
   }
+  if (level === 'unknown') {
+    return kind === 'ring' ? 'ring-muted' : 'text-muted-foreground'
+  }
   return kind === 'ring' ? 'ring-emerald-500/25' : 'text-emerald-500'
 }
 
@@ -96,7 +100,8 @@ export const ModelStatusRow = memo(function ModelStatusRow(props: {
   model: PublicModelStatusItem
 }) {
   const { t, i18n } = useTranslation()
-  const level = getSuccessRateLevel(props.model.success_rate)
+  const successRate = props.model.success_rate ?? Number.NaN
+  const level = getSuccessRateLevel(successRate)
   return (
     <div className='grid min-w-[920px] grid-cols-[minmax(12rem,1fr)_6rem_7rem_minmax(30rem,2fr)] items-center gap-4 border-b px-4 py-3 last:border-b-0'>
       <div className='min-w-0'>
@@ -105,10 +110,10 @@ export const ModelStatusRow = memo(function ModelStatusRow(props: {
       <div
         className={cn(
           'text-right font-mono font-semibold',
-          getSuccessRateTextClass(props.model.success_rate)
+          getSuccessRateTextClass(successRate)
         )}
       >
-        {formatUptimePct(props.model.success_rate)}
+        {formatUptimePct(successRate)}
       </div>
       <div className='text-muted-foreground text-right font-mono text-sm'>
         {formatLatency(props.model.avg_latency_ms)}

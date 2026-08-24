@@ -30,6 +30,31 @@ type AbilityWithChannel struct {
 	ChannelType int `json:"channel_type"`
 }
 
+type EnabledModelGroup struct {
+	Group string `json:"group"`
+	Model string `json:"model"`
+}
+
+// GetEnabledModelGroups returns the model/group pairs that are currently
+// routable. Both the ability and its owning channel must be enabled so stale
+// ability rows cannot leak into capability-driven views such as service status.
+func GetEnabledModelGroups(groups []string) ([]EnabledModelGroup, error) {
+	pairs := make([]EnabledModelGroup, 0)
+	if len(groups) == 0 {
+		return pairs, nil
+	}
+
+	err := DB.Table("abilities").
+		Select("DISTINCT abilities."+commonGroupCol+" AS "+commonGroupCol+", abilities.model AS model").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities.enabled = ? AND channels.status = ?", true, common.ChannelStatusEnabled).
+		Where("abilities."+commonGroupCol+" IN ?", groups).
+		Order("abilities." + commonGroupCol + " ASC").
+		Order("abilities.model ASC").
+		Scan(&pairs).Error
+	return pairs, err
+}
+
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").

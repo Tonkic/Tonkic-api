@@ -63,6 +63,15 @@ describe('model hourly status row', () => {
         hourly_series: hourlySeries,
       },
       {
+        model_name: 'gpt-5.6-luna',
+        group: '0.2',
+        group_display_name: '0.2倍率分组',
+        avg_latency_ms: 0,
+        success_rate: null,
+        avg_tps: 0,
+        hourly_series: hourlySeries,
+      },
+      {
         model_name: 'gpt-5.6-sol',
         group: '0.05羊毛',
         group_display_name: '0.05倍率分组',
@@ -85,11 +94,38 @@ describe('model hourly status row', () => {
     expect(groups.map((group) => group.group)).toEqual([
       '0.05羊毛',
       '0.1',
+      '0.2',
     ])
     expect(groups[1].displayName).toBe('0.1倍率分组')
     expect(groups[1].models.map((model) => model.model_name)).toEqual([
       'gpt-5.6-luna',
       'gpt-5.6-sol',
     ])
+  })
+
+  test('renders an enabled model without samples as no data', () => {
+    const hourlySeries = Array.from({ length: 24 }, (_, index) => ({
+      ts: 1_800_000_000 + index * 3600,
+      success_rate: null,
+    }))
+    render(
+      <ModelStatusRow
+        model={{
+          model_name: 'gpt-5.6-luna',
+          group: '0.2',
+          group_display_name: '0.2倍率分组',
+          avg_latency_ms: 0,
+          success_rate: null,
+          avg_tps: 0,
+          hourly_series: hourlySeries,
+        }}
+      />
+    )
+
+    expect(screen.getAllByText('—')).toHaveLength(2)
+    expect(screen.getByText('No data')).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Recent status')).getAllByTitle(/No data/)
+    ).toHaveLength(24)
   })
 })
