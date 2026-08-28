@@ -31,7 +31,10 @@ type Channel struct {
 	Weight             *uint   `json:"weight" gorm:"default:0"`
 	CreatedTime        int64   `json:"created_time" gorm:"bigint"`
 	TestTime           int64   `json:"test_time" gorm:"bigint"`
-	ResponseTime       int     `json:"response_time"` // in milliseconds
+	ResponseTime       int     `json:"response_time"`                      // in milliseconds
+	TestStatus         int     `json:"test_status" gorm:"default:2;index"` // 2 unknown, 1 success, 0 failure
+	TestError          string  `json:"-" gorm:"type:text"`
+	TestedModel        string  `json:"tested_model" gorm:"type:varchar(255)"`
 	BaseURL            *string `json:"base_url" gorm:"column:base_url;default:''"`
 	Other              string  `json:"other"`
 	Balance            float64 `json:"balance"` // in USD
@@ -595,6 +598,23 @@ func (channel *Channel) UpdateResponseTime(responseTime int64) {
 	}).Error
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to update response time: channel_id=%d, error=%v", channel.Id, err))
+	}
+}
+
+// UpdateTestResult persists a completed connectivity probe without changing
+// credentials or channel configuration.
+func (channel *Channel) UpdateTestResult(modelName string, responseTime int64, testErr error) {
+	status := 1
+	errorMessage := ""
+	if testErr != nil {
+		status = 0
+		errorMessage = testErr.Error()
+	}
+	updates := map[string]any{"test_status": status, "test_error": errorMessage,
+		"tested_model": strings.TrimSpace(modelName), "test_time": common.GetTimestamp(),
+		"response_time": int(responseTime)}
+	if err := DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error; err != nil {
+		common.SysLog(fmt.Sprintf("failed to update test result: channel_id=%d, error=%v", channel.Id, err))
 	}
 }
 

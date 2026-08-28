@@ -20,7 +20,6 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -925,6 +924,15 @@ func TestChannel(c *gin.Context) {
 		requestCtx = c.Request.Context()
 	}
 	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
+	probeModel := channelTestModelName(channel, testModel)
+	probeElapsed := time.Since(tik).Milliseconds()
+	if result.localErr != nil {
+		channel.UpdateTestResult(probeModel, probeElapsed, result.localErr)
+	} else if result.newAPIError != nil {
+		channel.UpdateTestResult(probeModel, probeElapsed, result.newAPIError)
+	} else {
+		channel.UpdateTestResult(probeModel, probeElapsed, nil)
+	}
 	if result.localErr != nil {
 		resp := gin.H{
 			"success": false,
@@ -955,6 +963,25 @@ func TestChannel(c *gin.Context) {
 		"message": "",
 		"time":    consumedTime,
 	})
+}
+
+func channelTestModelName(channel *model.Channel, requested string) string {
+	if name := strings.TrimSpace(requested); name != "" {
+		return name
+	}
+	if channel != nil && channel.TestModel != nil {
+		if name := strings.TrimSpace(*channel.TestModel); name != "" {
+			return name
+		}
+	}
+	if channel != nil {
+		for _, name := range channel.GetModels() {
+			if name = strings.TrimSpace(name); name != "" {
+				return name
+			}
+		}
+	}
+	return "gpt-4o-mini"
 }
 
 // channelTestSummary records the outcome of one channel test cycle so the
@@ -1032,18 +1059,19 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 				shouldBanChannel = true
 			}
 		}
-
-		if result.context != nil {
-			probeSucceeded := result.localErr == nil && newAPIError == nil
-			for _, group := range channel.GetGroups() {
-				if group == "" {
-					continue
-				}
-				perfmetrics.Record(perfmetrics.Sample{
-					Model: testModel, Group: group, LatencyMs: milliseconds, Success: probeSucceeded,
-				})
-			}
+		probeModel := channelTestModelName(channel, testModel)
+		if result.localErr != nil {
+			channel.UpdateTestResult(probeModel, milliseconds, result.localErr)
+		} else if newAPIError != nil {
+			channel.UpdateTestResult(probeModel, milliseconds, newAPIError)
+		} else {
+			channel.UpdateTestResult(probeModel, milliseconds, nil)
 		}
+
+		// Channel probes are per-channel health checks, not user routing
+		// outcomes. Do not write them to perf_metrics: that stream is used by
+		// the public status page and must represent only the final result of a
+		// user request after all fallback/retry channels have been tried.
 
 		if result.localErr == nil && newAPIError == nil {
 			summary.Succeeded++
