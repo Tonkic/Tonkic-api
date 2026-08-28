@@ -174,8 +174,11 @@ func RunRiskScan(ctx context.Context) (RiskScanSummary, error) {
 		for _, member := range members {
 			ids = append(ids, member.UserID)
 		}
+		// Keep soft-deleted accounts as evidence anchors.  A deleted account
+		// must still connect a newly-created account to the historical risk
+		// cluster, even though it is not eligible for another status change.
 		var users []model.User
-		if err := model.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
+		if err := model.DB.Unscoped().Where("id IN ?", ids).Find(&users).Error; err != nil {
 			return summary, err
 		}
 		topup, err := model.SuccessfulTopupUsers(ids)
@@ -304,10 +307,22 @@ func RunRiskScan(ctx context.Context) (RiskScanSummary, error) {
 		if protected {
 			continue
 		}
-		if err := model.ApplyRiskBanCase(riskCase.ID, ids, 0, "automatically banned by risk policy"); err != nil {
+		// Apply the ban only to live accounts. Deleted accounts remain in the
+		// case for auditability and continue to contribute evidence/score.
+		eligibleIDs := make([]int, 0, len(ids))
+		for _, id := range ids {
+			if user, ok := userByID[id]; ok && user.DeletedAt.Valid {
+				continue
+			}
+			eligibleIDs = append(eligibleIDs, id)
+		}
+		if len(eligibleIDs) == 0 {
+			continue
+		}
+		if err := model.ApplyRiskBanCase(riskCase.ID, eligibleIDs, 0, "automatically banned by risk policy"); err != nil {
 			return summary, err
 		}
-		for _, id := range ids {
+		for _, id := range eligibleIDs {
 			if userByID[id].Status != common.UserStatusRiskBanned {
 				summary.UsersBanned++
 			}

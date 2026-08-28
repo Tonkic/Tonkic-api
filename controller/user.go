@@ -239,6 +239,11 @@ func Register(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgUserVerificationCodeError)
 			return
 		}
+	}
+	// Email identity is globally unique for the lifetime of an account,
+	// including soft-deleted accounts. Enforce this for every registration
+	// path, not only when verification is enabled.
+	if user.Email != "" {
 		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
 			if errors.Is(err, model.ErrEmailAlreadyTaken) {
 				common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
@@ -248,11 +253,7 @@ func Register(c *gin.Context) {
 			return
 		}
 	}
-	emailForExistCheck := ""
-	if common.EmailVerificationEnabled {
-		emailForExistCheck = user.Email
-	}
-	exist, err := model.CheckUserExistOrDeleted(user.Username, emailForExistCheck)
+	exist, err := model.CheckUserExistOrDeleted(user.Username, user.Email)
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
 		common.SysLog(fmt.Sprintf("CheckUserExistOrDeleted error: %v", err))
@@ -271,9 +272,7 @@ func Register(c *gin.Context) {
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
-	if common.EmailVerificationEnabled {
-		cleanUser.Email = user.Email
-	}
+	cleanUser.Email = user.Email
 	if err := cleanUser.Insert(inviterId); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)

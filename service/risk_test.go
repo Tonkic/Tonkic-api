@@ -172,3 +172,46 @@ func TestRunRiskScanIgnoresNonPublicAssociationIPs(t *testing.T) {
 	require.NoError(t, db.Model(&model.RiskCase{}).Count(&caseCount).Error)
 	assert.Zero(t, caseCount)
 }
+
+func TestRunRiskScanRetainsDeletedAnchorAndBansLiveLinkedUser(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:risk-deleted-anchor?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Log{}, &model.SecurityEvent{}, &model.TopUp{}, &model.CompensationClaim{}, &model.RiskCase{}, &model.RiskCaseUser{}, &model.RiskAllowlist{}, &model.UserSession{}, &model.Token{}))
+	oldDB, oldLogDB, oldRedis := model.DB, model.LOG_DB, common.RedisEnabled
+	model.DB, model.LOG_DB, common.RedisEnabled = db, db, false
+	t.Cleanup(func() { model.DB, model.LOG_DB, common.RedisEnabled = oldDB, oldLogDB, oldRedis })
+	setting := operation_setting.GetRiskSetting()
+	oldSetting := *setting
+	*setting = operation_setting.RiskSetting{Enabled: true, AutoBanEnabled: true, ScanIntervalMinutes: 5, LookbackDays: 7, AutoBanScore: 100, MinimumCategories: 2}
+	t.Cleanup(func() { *setting = oldSetting })
+	now := time.Now().Unix()
+	users := []model.User{
+		{Username: "deleted-anchor", AffCode: "deleted-anchor", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, CreatedAt: now - 3600, AuthVersion: 1},
+		{Username: "new-linked", AffCode: "new-linked", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, CreatedAt: now, AuthVersion: 1},
+	}
+	require.NoError(t, db.Create(&users).Error)
+	users[1].InviterId = users[0].Id
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", users[1].Id).Update("inviter_id", users[0].Id).Error)
+	require.NoError(t, db.Delete(&users[0]).Error)
+	for _, user := range users {
+		for range 10 {
+			require.NoError(t, db.Create(&model.Log{UserId: user.Id, Type: model.LogTypeConsume, Ip: "8.8.8.77", CreatedAt: now}).Error)
+		}
+		require.NoError(t, db.Create(&model.SecurityEvent{UserID: user.Id, EventType: "register", IP: "8.8.8.77", UserAgentHash: "same-browser", CreatedAt: now}).Error)
+		require.NoError(t, db.Create(&model.SecurityEvent{UserID: user.Id, EventType: "login", IP: "8.8.8.77", UserAgentHash: "same-browser", CreatedAt: now + 1}).Error)
+	}
+
+	summary, err := RunRiskScan(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.CasesUpdated)
+	assert.Equal(t, 1, summary.UsersBanned)
+	var members []model.RiskCaseUser
+	require.NoError(t, db.Order("user_id").Find(&members).Error)
+	assert.Len(t, members, 2)
+	var live model.User
+	require.NoError(t, db.Unscoped().First(&live, users[1].Id).Error)
+	assert.Equal(t, common.UserStatusRiskBanned, live.Status)
+	var anchor model.User
+	require.NoError(t, db.Unscoped().First(&anchor, users[0].Id).Error)
+	assert.NotZero(t, anchor.DeletedAt)
+}
