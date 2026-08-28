@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -35,6 +36,18 @@ export function ApiKeys() {
           <ApiKeysPrimaryButtons />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
+          <div className='mb-4 flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100'>
+            <AlertTriangle className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
+            <p>
+              {t('TonkicAPI service notice')}{' '}
+              <a className='underline' href='https://tonkicapi.xyz' target='_blank' rel='noreferrer'>
+                {t('China site')}
+              </a>{' · '}
+              <a className='underline' href='https://us.tonkicapi.xyz' target='_blank' rel='noreferrer'>
+                {t('US site')}
+              </a>
+            </p>
+          </div>
           <ApiKeysTable />
         </SectionPageLayout.Content>
       </SectionPageLayout>
