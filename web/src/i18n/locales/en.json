@@ -465,6 +465,8 @@
     "TonkicAPI service notice": "Service notice: use the official TonkicAPI sites for current availability and announcements.",
     "China site": "China site",
     "US site": "US site",
+    "Copy China site URL": "Copy China site URL",
+    "Copy US site URL": "Copy US site URL",
     "API Private Key": "API Private Key",
     "API Requests": "API Requests",
     "API secret": "API secret",
