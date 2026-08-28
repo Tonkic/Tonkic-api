@@ -26,32 +26,9 @@ export default defineConfig(({ envMode }) => {
   return {
     plugins: [pluginReact(), pluginTailwindcss({ optimize: false })],
     // Rsbuild 2: replaces deprecated `performance.chunkSplit` (RSPack 2 aligned)
-    splitChunks: {
-      preset: 'default',
-      cacheGroups: {
-        'vendor-react': {
-          test: /node_modules[\\/](react|react-dom)[\\/]/,
-          name: 'vendor-react',
-          chunks: 'all',
-          priority: 0,
-          enforce: true,
-        },
-        'vendor-ui-primitives': {
-          test: /node_modules[\\/](@base-ui|@radix-ui)[\\/]/,
-          name: 'vendor-ui-primitives',
-          chunks: 'all',
-          priority: 0,
-          enforce: true,
-        },
-        'vendor-tanstack': {
-          test: /node_modules[\\/]@tanstack[\\/]/,
-          name: 'vendor-tanstack',
-          chunks: 'all',
-          priority: 0,
-          enforce: true,
-        },
-      },
-    },
+    // Keep one application runtime in production. Multiple vendor chunks can
+    // load duplicate React dispatchers after an interrupted/continued deploy.
+    splitChunks: false,
     source: {
       entry: {
         index: './src/main.tsx',
@@ -60,6 +37,8 @@ export default defineConfig(({ envMode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
+        react: path.resolve(__dirname, './node_modules/react'),
+        'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
       },
     },
     html: {
@@ -93,7 +72,7 @@ export default defineConfig(({ envMode }) => {
             target: 'react',
             // Dev: avoid per-route async chunks (reduces white flash on navigation + faster HMR feedback).
             // Prod: keep route-based code splitting.
-            autoCodeSplitting: isProd,
+            autoCodeSplitting: false,
           }),
         ],
       },
