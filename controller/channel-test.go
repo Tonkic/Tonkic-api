@@ -1150,7 +1150,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 	return summary
 }
 
-var publicProbeGroups = map[string]struct{}{"0.05": {}, "0.05羊毛": {}, "0.1": {}, "0.2": {}}
+var publicProbeGroups = map[string]struct{}{"0.05羊毛": {}, "0.1": {}, "0.2": {}}
 
 func isPublicProbeGroup(group string) bool {
 	_, ok := publicProbeGroups[strings.TrimSpace(group)]
