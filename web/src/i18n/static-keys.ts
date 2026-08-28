@@ -83,6 +83,9 @@ export const STATIC_I18N_KEYS = [
   'Guest',
 
   // API Keys
+  'TonkicAPI service notice',
+  'China site',
+  'US site',
   'Enabled',
   'Disabled',
   'Expired',
