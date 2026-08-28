@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -1012,7 +1013,12 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 	}
 	targets := make([]testTarget, 0, len(channels))
 	for _, channel := range channels {
-		models := excludeAutomaticChannelTestModels(automaticChannelTestModels(channel), excludedModels)
+		if !channelHasPublicProbeGroup(channel) {
+			continue
+		}
+		// One lightweight model per channel is sufficient for channel
+		// availability and keeps the scheduled probe inexpensive.
+		models := excludeAutomaticChannelTestModels(automaticChannelTestModels(channel)[:1], excludedModels)
 		for index, modelName := range models {
 			targets = append(targets, testTarget{
 				channel: channel, model: modelName, primaryProbe: index == 0,
@@ -1021,6 +1027,12 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 	}
 
 	total := len(targets)
+	type aggregate struct {
+		success bool
+		failed  bool
+		latency int64
+	}
+	aggregates := make(map[string]*aggregate)
 	for index, target := range targets {
 		if ctx != nil && ctx.Err() != nil {
 			break
@@ -1078,6 +1090,25 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		} else {
 			summary.Failed++
 		}
+		for _, group := range channel.GetGroups() {
+			if !isPublicProbeGroup(group) {
+				continue
+			}
+			key := strings.TrimSpace(group) + "\x00" + testModel
+			a := aggregates[key]
+			if a == nil {
+				a = &aggregate{}
+				aggregates[key] = a
+			}
+			if result.localErr == nil && newAPIError == nil {
+				a.success = true
+				if a.latency == 0 || milliseconds < a.latency {
+					a.latency = milliseconds
+				}
+			} else {
+				a.failed = true
+			}
+		}
 
 		// disable channel
 		if target.primaryProbe && allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
@@ -1106,10 +1137,32 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 			}
 		}
 	}
+	for key, a := range aggregates {
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		perfmetrics.Record(perfmetrics.Sample{Model: parts[1], Group: parts[0], LatencyMs: a.latency, Success: a.success})
+	}
 	if report != nil && (ctx == nil || ctx.Err() == nil) {
 		report(total, total) // mark complete only when the full set was tested
 	}
 	return summary
+}
+
+var publicProbeGroups = map[string]struct{}{"0.05": {}, "0.05羊毛": {}, "0.1": {}, "0.2": {}}
+
+func isPublicProbeGroup(group string) bool {
+	_, ok := publicProbeGroups[strings.TrimSpace(group)]
+	return ok
+}
+func channelHasPublicProbeGroup(channel *model.Channel) bool {
+	for _, group := range channel.GetGroups() {
+		if isPublicProbeGroup(group) {
+			return true
+		}
+	}
+	return false
 }
 
 // runChannelTestTask runs one synchronous channel test cycle for the system task

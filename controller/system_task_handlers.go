@@ -56,7 +56,7 @@ func (channelTestHandler) Enabled() bool {
 func (channelTestHandler) Interval() time.Duration {
 	minutes := operation_setting.GetMonitorSetting().AutoTestChannelMinutes
 	if minutes <= 0 {
-		minutes = 15
+		minutes = 40
 	}
 	return time.Duration(minutes * float64(time.Minute))
 }

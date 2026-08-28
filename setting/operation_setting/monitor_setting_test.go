@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMonitorSettingDefaultsEnableFifteenMinuteChannelTests(t *testing.T) {
+func TestMonitorSettingDefaultsEnableFortyMinuteChannelTests(t *testing.T) {
 	t.Setenv("CHANNEL_TEST_ENABLED", "")
 	t.Setenv("CHANNEL_TEST_FREQUENCY", "")
 
 	assert.True(t, monitorSetting.AutoTestChannelEnabled)
-	assert.Equal(t, float64(15), monitorSetting.AutoTestChannelMinutes)
+	assert.Equal(t, float64(40), monitorSetting.AutoTestChannelMinutes)
 	assert.Contains(t, monitorSetting.ExcludedAutoTestModels, "gpt-image-*")
 }
 

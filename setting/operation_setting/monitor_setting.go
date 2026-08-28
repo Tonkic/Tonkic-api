@@ -23,7 +23,7 @@ const (
 // 默认配置
 var monitorSetting = MonitorSetting{
 	AutoTestChannelEnabled: true,
-	AutoTestChannelMinutes: 15,
+	AutoTestChannelMinutes: 40,
 	ChannelTestMode:        ChannelTestModeScheduledAll,
 	ExcludedAutoTestModels: []string{
 		"gpt-image-*",
