@@ -47,8 +47,6 @@ func GetPublicModelStatus(c *gin.Context) {
 			metricByPair[publicStatusPairKey(group.Group, item.ModelName)] = group
 		}
 	}
-	channels, _ := model.GetAllChannels(0, 0, true, false)
-
 	for _, pair := range enabledPairs {
 		if len(excludeAutomaticChannelTestModels([]string{pair.Model}, excludedModels)) == 0 {
 			continue
@@ -69,16 +67,6 @@ func GetPublicModelStatus(c *gin.Context) {
 		} else {
 			hourlySeries = emptyPublicStatusHourlySeries(24, generatedAt)
 		}
-		// Prefer fresh per-channel probe aggregation when available. A pair is
-		// healthy if any enabled candidate succeeded; it is failed only when all
-		// fresh candidates failed. Stale/legacy probes remain unknown.
-		if probeRate, probeLatency, ok := aggregatePublicProbe(channels, pair.Group, pair.Model, generatedAt); ok {
-			successRate = probeRate
-			if probeLatency > 0 {
-				group.AvgLatencyMs = int64(probeLatency)
-			}
-		}
-
 		models = append(models, gin.H{
 			"model_name":           pair.Model,
 			"group":                pair.Group,
@@ -104,64 +92,6 @@ func GetPublicModelStatus(c *gin.Context) {
 			"models":               models,
 		},
 	})
-}
-
-func aggregatePublicProbe(channels []*model.Channel, groupName, modelName string, now int64) (float64, int, bool) {
-	freshness := int64(operation_setting.GetMonitorSetting().AutoTestChannelMinutes * 2 * 60)
-	if freshness <= 0 {
-		freshness = 20 * 60
-	}
-	success, failure, unknown := 0, 0, 0
-	latency := 0
-	for _, ch := range channels {
-		if ch == nil || ch.Status == common.ChannelStatusManuallyDisabled {
-			continue
-		}
-		inGroup := false
-		for _, g := range ch.GetGroups() {
-			if g == groupName {
-				inGroup = true
-				break
-			}
-		}
-		if !inGroup {
-			continue
-		}
-		matches := ch.TestedModel == modelName
-		if !matches {
-			for _, m := range ch.GetModels() {
-				if m == modelName {
-					matches = true
-					break
-				}
-			}
-		}
-		if !matches {
-			continue
-		}
-		if ch.TestTime <= 0 || now-ch.TestTime > freshness || ch.TestStatus == 2 {
-			unknown++
-			continue
-		}
-		if ch.TestStatus == 1 {
-			success++
-			if ch.ResponseTime > 0 && (latency == 0 || ch.ResponseTime < latency) {
-				latency = ch.ResponseTime
-			}
-		} else {
-			failure++
-		}
-	}
-	if success == 0 && failure == 0 && unknown == 0 {
-		return 0, 0, false
-	}
-	if success > 0 {
-		return 100, latency, true
-	}
-	if unknown == 0 {
-		return 0, latency, true
-	}
-	return 0, latency, false
 }
 
 func publicStatusPairKey(group, modelName string) string {

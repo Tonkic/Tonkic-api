@@ -2560,7 +2560,7 @@
     "List of models supported by this channel. Use comma to separate multiple models.": "このチャネルがサポートするモデルのリストです。複数のモデルはカンマで区切ってください。",
     "List of origins (one per line) allowed for Passkey registration and authentication.": "Passkeyの登録と認証が許可されているオリジン（1行に1つ）のリスト。",
     "List view": "リスト表示",
-    "Live availability based on real API requests during the last 24 hours.": "過去24時間の実際のAPIリクエストに基づく可用性です。",
+    "Live availability based on real API requests and scheduled checks during the last 24 hours.": "過去24時間の実際のAPIリクエストと定期チェックに基づく可用性です。",
     "Live refresh pauses when no task is running": "実行中のタスクがない場合、自動更新は一時停止します",
     "LLM Leaderboard": "LLM リーダーボード",
     "LLM prompt helper": "LLMプロンプトヘルパー",

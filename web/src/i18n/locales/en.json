@@ -2560,7 +2560,7 @@
     "List of models supported by this channel. Use comma to separate multiple models.": "List of models supported by this channel. Use comma to separate multiple models.",
     "List of origins (one per line) allowed for Passkey registration and authentication.": "List of origins (one per line) allowed for Passkey registration and authentication.",
     "List view": "List view",
-    "Live availability based on real API requests during the last 24 hours.": "Live availability based on real API requests during the last 24 hours.",
+    "Live availability based on real API requests and scheduled checks during the last 24 hours.": "Live availability based on real API requests and scheduled checks during the last 24 hours.",
     "Live refresh pauses when no task is running": "Live refresh pauses when no task is running",
     "LLM Leaderboard": "LLM Leaderboard",
     "LLM prompt helper": "LLM prompt helper",

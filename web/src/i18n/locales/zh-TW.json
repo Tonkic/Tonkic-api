@@ -2560,7 +2560,7 @@
     "List of models supported by this channel. Use comma to separate multiple models.": "此渠道支援的模型清單。使用逗號分隔多個模型。",
     "List of origins (one per line) allowed for Passkey registration and authentication.": "允許用於 Passkey 註冊和身份驗證的來源清單（每行一個）。",
     "List view": "列表檢視",
-    "Live availability based on real API requests during the last 24 hours.": "基於最近 24 小時真實 API 請求的即時可用性。",
+    "Live availability based on real API requests and scheduled checks during the last 24 hours.": "基於最近 24 小時真實 API 請求與定時檢測的即時可用性。",
     "Live refresh pauses when no task is running": "無任務執行時暫停自動重新整理",
     "LLM Leaderboard": "LLM 排行榜",
     "LLM prompt helper": "LLM 輔助設計提示詞",

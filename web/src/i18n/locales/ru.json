@@ -2560,7 +2560,7 @@
     "List of models supported by this channel. Use comma to separate multiple models.": "Список моделей, поддерживаемых этим каналом. Используйте запятую для разделения нескольких моделей.",
     "List of origins (one per line) allowed for Passkey registration and authentication.": "Список источников (один на строку), разрешенных для регистрации и аутентификации Passkey.",
     "List view": "Вид списка",
-    "Live availability based on real API requests during the last 24 hours.": "Актуальная доступность на основе реальных API-запросов за последние 24 часа.",
+    "Live availability based on real API requests and scheduled checks during the last 24 hours.": "Актуальная доступность на основе реальных API-запросов и плановых проверок за последние 24 часа.",
     "Live refresh pauses when no task is running": "Автообновление приостанавливается, когда нет выполняемых задач",
     "LLM Leaderboard": "Рейтинг LLM",
     "LLM prompt helper": "Помощник с промптом для LLM",

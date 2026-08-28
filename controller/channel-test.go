@@ -1016,9 +1016,9 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		if !channelHasPublicProbeGroup(channel) {
 			continue
 		}
-		// One lightweight model per channel is sufficient for channel
-		// availability and keeps the scheduled probe inexpensive.
-		models := excludeAutomaticChannelTestModels(automaticChannelTestModels(channel)[:1], excludedModels)
+		// Probe every user-visible model, but keep image/expensive models filtered
+		// by ExcludedAutoTestModels. This gives each status row its own sample.
+		models := excludeAutomaticChannelTestModels(automaticChannelTestModels(channel), excludedModels)
 		for index, modelName := range models {
 			targets = append(targets, testTarget{
 				channel: channel, model: modelName, primaryProbe: index == 0,
@@ -1080,11 +1080,6 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 			channel.UpdateTestResult(probeModel, milliseconds, nil)
 		}
 
-		// Channel probes are per-channel health checks, not user routing
-		// outcomes. Do not write them to perf_metrics: that stream is used by
-		// the public status page and must represent only the final result of a
-		// user request after all fallback/retry channels have been tried.
-
 		if result.localErr == nil && newAPIError == nil {
 			summary.Succeeded++
 		} else {
@@ -1100,11 +1095,11 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 				a = &aggregate{}
 				aggregates[key] = a
 			}
+			if a.latency == 0 || milliseconds < a.latency {
+				a.latency = milliseconds
+			}
 			if result.localErr == nil && newAPIError == nil {
 				a.success = true
-				if a.latency == 0 || milliseconds < a.latency {
-					a.latency = milliseconds
-				}
 			} else {
 				a.failed = true
 			}

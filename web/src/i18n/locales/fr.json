@@ -2560,7 +2560,7 @@
     "List of models supported by this channel. Use comma to separate multiple models.": "Liste des modèles pris en charge par ce canal. Utilisez une virgule pour séparer plusieurs modèles.",
     "List of origins (one per line) allowed for Passkey registration and authentication.": "Liste des origines (une par ligne) autorisées pour l'enregistrement et l'authentification des clés d'accès (Passkey).",
     "List view": "Vue en liste",
-    "Live availability based on real API requests during the last 24 hours.": "Disponibilité en direct basée sur les requêtes API réelles des dernières 24 heures.",
+    "Live availability based on real API requests and scheduled checks during the last 24 hours.": "Disponibilité en direct basée sur les requêtes API réelles et les contrôles planifiés des dernières 24 heures.",
     "Live refresh pauses when no task is running": "L'actualisation en direct est suspendue lorsqu'aucune tâche n'est en cours",
     "LLM Leaderboard": "Classement des LLM",
     "LLM prompt helper": "Assistant prompt LLM",

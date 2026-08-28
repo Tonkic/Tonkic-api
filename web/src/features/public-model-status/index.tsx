@@ -277,7 +277,7 @@ export function PublicModelStatus() {
           </h1>
           <p className='text-muted-foreground mt-2 max-w-2xl'>
             {t(
-              'Live availability based on real API requests during the last 24 hours.'
+              'Live availability based on real API requests and scheduled checks during the last 24 hours.'
             )}
           </p>
         </div>
