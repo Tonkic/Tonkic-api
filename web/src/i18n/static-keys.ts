@@ -86,6 +86,8 @@ export const STATIC_I18N_KEYS = [
   'TonkicAPI service notice',
   'China site',
   'US site',
+  'Copy China site URL',
+  'Copy US site URL',
   'Enabled',
   'Disabled',
   'Expired',

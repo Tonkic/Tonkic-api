@@ -413,6 +413,8 @@
     "TonkicAPI service notice": "服务公告：请通过 TonkicAPI 官方站点查看可用性和最新通知。",
     "China site": "中国站点",
     "US site": "美国站点",
+    "Copy China site URL": "复制中国站点 URL",
+    "Copy US site URL": "复制美国站点 URL",
     "API Private Key": "API 私钥",
     "API Requests": "API 请求",
     "API secret": "API 秘钥",
