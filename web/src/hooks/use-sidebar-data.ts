@@ -131,6 +131,11 @@ export function useSidebarData(): SidebarData {
             url: '/security',
             icon: ShieldCheck,
           },
+          {
+            title: t('Support tickets'),
+            url: '/tickets',
+            icon: Ticket,
+          },
         ],
       },
       {
@@ -151,6 +156,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Risk accounts'),
+            url: '/risk-accounts',
+            icon: ShieldCheck,
           },
           {
             title: t('Redemption Codes'),

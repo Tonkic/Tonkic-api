@@ -22,6 +22,24 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(riskScanHandler{})
+}
+
+type riskScanHandler struct{}
+
+func (riskScanHandler) Type() string  { return model.SystemTaskTypeRiskScan }
+func (riskScanHandler) Enabled() bool { return operation_setting.GetRiskSetting().Enabled }
+func (riskScanHandler) Interval() time.Duration {
+	return time.Duration(operation_setting.GetRiskSetting().ScanIntervalMinutes) * time.Minute
+}
+func (riskScanHandler) NewPayload() any { return nil }
+func (riskScanHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	summary, err := service.RunRiskScan(ctx)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

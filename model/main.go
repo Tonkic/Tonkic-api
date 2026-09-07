@@ -367,6 +367,14 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&CasbinRule{},
 		&AuthzRole{},
+		&Ticket{},
+		&TicketMessage{},
+		&CompensationCampaign{},
+		&CompensationClaim{},
+		&RiskCase{},
+		&RiskCaseUser{},
+		&RiskAllowlist{},
+		&SecurityEvent{},
 	)
 	if err != nil {
 		return err
