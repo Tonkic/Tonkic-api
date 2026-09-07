@@ -117,7 +117,7 @@ func visibleMetricGroups(c *gin.Context, includeAuto bool) []string {
 	if role >= common.RoleAdminUser {
 		groups = append(groups, lo.Keys(activeRatios)...)
 	} else {
-		usable := service.GetUserUsableGroupsForRole(c.GetString("group"), role)
+		usable := service.GetUserUsableGroups(c.GetString("group"))
 		for group := range activeRatios {
 			if _, ok := usable[group]; ok {
 				groups = append(groups, group)
@@ -125,7 +125,7 @@ func visibleMetricGroups(c *gin.Context, includeAuto bool) []string {
 		}
 	}
 	if includeAuto {
-		usable := service.GetUserUsableGroupsForRole(c.GetString("group"), role)
+		usable := service.GetUserUsableGroups(c.GetString("group"))
 		if role >= common.RoleAdminUser {
 			groups = append(groups, "auto")
 		} else if _, ok := usable["auto"]; ok {
@@ -186,10 +186,9 @@ func GetPerfMetrics(c *gin.Context) {
 		return
 	}
 	result, err := perfmetrics.Query(perfmetrics.QueryParams{
-		Model:         modelName,
-		Group:         requestedGroup,
-		AllowedGroups: visibleGroups,
-		Hours:         hours,
+		Model: modelName,
+		Group: requestedGroup,
+		Hours: hours,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

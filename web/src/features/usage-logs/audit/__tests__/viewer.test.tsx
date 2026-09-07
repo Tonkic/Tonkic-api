@@ -730,7 +730,10 @@ it('mobile access history keeps pagination visible and puts result filters in a 
     await user.click(screen.getByRole('button', { name: 'Filter' }))
     const drawer = await screen.findByRole('dialog', { name: 'Filter' })
     await user.click(within(drawer).getByRole('combobox', { name: 'Result' }))
-    await user.click(await screen.findByRole('option', { name: 'Failed' }))
+    // Base UI's positioner can remain pointer-events:none in JSDOM because no
+    // browser layout frame runs. Dispatch the selection directly; the
+    // following request assertion still verifies the user-visible behavior.
+    fireEvent.click(await screen.findByRole('option', { name: 'Failed' }))
     await waitFor(() =>
       expect(get).toHaveBeenLastCalledWith('/api/audit/self', {
         params: expect.objectContaining({ success: 'false', p: 1 }),

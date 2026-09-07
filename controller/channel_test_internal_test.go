@@ -326,17 +326,91 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 	require.Equal(t, 2, selected[1].Id)
 }
 
-func TestSelectedChannelTestModelUsesConfiguredModelBeforeChannelModels(t *testing.T) {
-	configured := " configured-model "
-	channel := &model.Channel{Models: "first-model,second-model", TestModel: &configured}
+func TestPublicProbeGroupSelection(t *testing.T) {
+	assert.True(t, isPublicProbeGroup(" 0.05羊毛 "))
+	assert.True(t, isPublicProbeGroup("0.1"))
+	assert.True(t, isPublicProbeGroup("0.2"))
+	assert.False(t, isPublicProbeGroup("all-with-team"))
+	assert.False(t, isPublicProbeGroup("0.05"))
+}
 
-	require.Equal(t, "requested-model", selectedChannelTestModel(channel, " requested-model "))
-	require.Equal(t, "configured-model", selectedChannelTestModel(channel, ""))
+func TestPublicScheduledProbeTargetsOnlyIncludePublicTextModels(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	channel := &model.Channel{Name: "probe", Status: common.ChannelStatusEnabled, Group: "0.1,all-with-team", Models: "gpt-5.6-sol,gpt-image-2"}
+	require.NoError(t, db.Create(channel).Error)
+	require.NoError(t, db.Create([]model.Ability{
+		{Group: "0.1", Model: "gpt-5.6-sol", ChannelId: channel.Id, Enabled: true},
+		{Group: "0.1", Model: "gpt-image-2", ChannelId: channel.Id, Enabled: true},
+		{Group: "all-with-team", Model: "gpt-5.6-sol", ChannelId: channel.Id, Enabled: true},
+	}).Error)
 
-	configured = " "
-	require.Equal(t, "first-model", selectedChannelTestModel(channel, ""))
-	channel.Models = ""
-	require.Equal(t, "gpt-4o-mini", selectedChannelTestModel(channel, ""))
+	targets, err := publicScheduledProbeTargets()
+
+	require.NoError(t, err)
+	require.Equal(t, []model.EnabledModelGroup{{Group: "0.1", Model: "gpt-5.6-sol"}}, targets)
+}
+
+func TestPublicProbeCompletedRequiresSuccessfulCompleteResponse(t *testing.T) {
+	assert.True(t, publicProbeCompleted(http.StatusOK, "data: {\"choices\":[]}\n\ndata: [DONE]\n\n"))
+	assert.True(t, publicProbeCompleted(http.StatusOK, `{"choices":[{"finish_reason":"stop"}]}`))
+	assert.False(t, publicProbeCompleted(http.StatusOK, "data: {\"choices\":[]}\n\n"))
+	assert.False(t, publicProbeCompleted(http.StatusBadGateway, `{"error":{"message":"upstream failed"}}`))
+}
+
+func TestPublicProbeUsesNormalRoutingAndFallsBack(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	withSelfUseModeEnabled(t)
+	require.NoError(t, db.AutoMigrate(&model.SubscriptionPlan{}, &model.UserSubscription{}, &model.Log{}))
+	originalMemoryCache := common.MemoryCacheEnabled
+	originalRetryTimes := common.RetryTimes
+	originalStreamingTimeout := constant.StreamingTimeout
+	common.MemoryCacheEnabled = false
+	common.RetryTimes = 1
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = originalMemoryCache
+		common.RetryTimes = originalRetryTimes
+		constant.StreamingTimeout = originalStreamingTimeout
+	})
+
+	var failedCalls atomic.Int32
+	failedUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		failedCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":{"message":"temporary upstream failure"}}`))
+	}))
+	defer failedUpstream.Close()
+	var successfulCalls atomic.Int32
+	successfulUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		successfulCalls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-probe\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-probe\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer successfulUpstream.Close()
+
+	root := &model.User{Username: "probe-root", Password: "unused", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", Quota: 1_000_000, AffCode: "probe-root"}
+	require.NoError(t, db.Create(root).Error)
+	highPriority := int64(10)
+	lowPriority := int64(9)
+	weight := uint(100)
+	channels := []*model.Channel{
+		{Name: "probe-fail", Type: constant.ChannelTypeOpenAI, Key: "test", BaseURL: &failedUpstream.URL, Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-4o-mini", Priority: &highPriority, Weight: &weight},
+		{Name: "probe-success", Type: constant.ChannelTypeOpenAI, Key: "test", BaseURL: &successfulUpstream.URL, Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-4o-mini", Priority: &lowPriority, Weight: &weight},
+	}
+	for _, channel := range channels {
+		require.NoError(t, db.Create(channel).Error)
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "gpt-4o-mini", ChannelId: channel.Id, Enabled: true, Priority: channel.Priority, Weight: weight}).Error)
+	}
+
+	succeeded, usedChannel, _ := probePublicGroupModel(context.Background(), root.Id, "default", "gpt-4o-mini")
+
+	require.True(t, succeeded)
+	require.True(t, usedChannel)
+	require.Equal(t, int32(1), failedCalls.Load())
+	require.Equal(t, int32(1), successfulCalls.Load())
 }
 
 func TestSelectChannelsForAutomaticTestAutoBanOnlyUsesEligibleChannels(t *testing.T) {

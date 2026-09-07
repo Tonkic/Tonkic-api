@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -917,6 +919,151 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
+func excludeAutomaticChannelTestModels(models, patterns []string) []string {
+	filtered := make([]string, 0, len(models))
+	for _, modelName := range models {
+		excluded := false
+		for _, rawPattern := range patterns {
+			pattern := strings.TrimSpace(rawPattern)
+			if pattern == "" {
+				continue
+			}
+			expression := "^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, ".*") + "$"
+			if matched, err := regexp.MatchString(expression, modelName); err == nil && matched {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			filtered = append(filtered, modelName)
+		}
+	}
+	return filtered
+}
+
+var publicProbeGroups = map[string]struct{}{"0.05羊毛": {}, "0.1": {}, "0.2": {}}
+
+func isPublicProbeGroup(group string) bool {
+	_, ok := publicProbeGroups[strings.TrimSpace(group)]
+	return ok
+}
+
+func publicScheduledProbeTargets() ([]model.EnabledModelGroup, error) {
+	groups := make([]string, 0, len(publicProbeGroups))
+	for group := range publicProbeGroups {
+		groups = append(groups, group)
+	}
+	pairs, err := model.GetEnabledModelGroups(groups)
+	if err != nil {
+		return nil, err
+	}
+	excluded := operation_setting.GetMonitorSetting().ExcludedAutoTestModels
+	return lo.Filter(pairs, func(pair model.EnabledModelGroup, _ int) bool {
+		return isPublicProbeGroup(pair.Group) && len(excludeAutomaticChannelTestModels([]string{pair.Model}, excluded)) != 0
+	}), nil
+}
+
+func publicProbeCompleted(status int, body string) bool {
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return false
+	}
+	trimmed := strings.TrimSpace(body)
+	if strings.Contains(trimmed, "data: [DONE]") {
+		return true
+	}
+	return strings.HasPrefix(trimmed, "{") && strings.Contains(trimmed, `"choices"`) && !strings.Contains(trimmed, `"error"`)
+}
+
+func probePublicGroupModel(ctx context.Context, testUserID int, group, modelName string) (bool, bool, int64) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	user, err := model.GetUserCache(testUserID)
+	if err != nil {
+		return false, false, 0
+	}
+	payload, err := json.Marshal(gin.H{
+		"model":      modelName,
+		"group":      group,
+		"messages":   []gin.H{{"role": "user", "content": "Reply with OK."}},
+		"stream":     true,
+		"max_tokens": 1,
+	})
+	if err != nil {
+		return false, false, 0
+	}
+
+	var usedChannel bool
+	engine := gin.New()
+	engine.POST("/pg/chat/completions",
+		func(c *gin.Context) {
+			user.WriteContext(c)
+			c.Set("id", testUserID)
+			c.Set("role", user.Role)
+			c.Set("group", group)
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
+			c.Next()
+			usedChannel = len(c.GetStringSlice("use_channel")) > 0
+		},
+		middleware.Distribute(),
+		Playground,
+	)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/pg/chat/completions", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	started := time.Now()
+	engine.ServeHTTP(recorder, request)
+	latency := time.Since(started).Milliseconds()
+	return publicProbeCompleted(recorder.Code, recorder.Body.String()), usedChannel, latency
+}
+
+func performPublicScheduledAPIProbes(ctx context.Context, testUserID int, report func(processed, total int)) (channelTestSummary, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	targets, err := publicScheduledProbeTargets()
+	if err != nil {
+		return channelTestSummary{}, err
+	}
+	if report != nil {
+		report(0, len(targets))
+	}
+	summary := channelTestSummary{}
+	for index, target := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+		succeeded, usedChannel, latency := probePublicGroupModel(ctx, testUserID, target.Group, target.Model)
+		if ctx.Err() != nil {
+			break
+		}
+		summary.Tested++
+		if succeeded {
+			summary.Succeeded++
+		} else {
+			summary.Failed++
+		}
+		// Relay records normal routed requests itself. If distribution failed before
+		// a channel was selected, persist the failed probe here so the public status
+		// page still receives one result for this group/model pair.
+		if !usedChannel {
+			perfmetrics.Record(perfmetrics.Sample{Model: target.Model, Group: target.Group, LatencyMs: latency, Success: false})
+		}
+		if report != nil {
+			report(index+1, len(targets))
+		}
+		if common.RequestInterval > 0 {
+			select {
+			case <-ctx.Done():
+				return summary, nil
+			case <-time.After(common.RequestInterval):
+			}
+		}
+	}
+	return summary, nil
+}
+
 func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, testUserID int, allowDisable bool, disableThreshold int64) channelTestSummary {
 	summary := channelTestSummary{}
 	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
@@ -1091,12 +1238,16 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	if err != nil {
 		return channelTestSummary{}, err
 	}
+	if strings.TrimSpace(mode) == "" {
+		summary, err := performPublicScheduledAPIProbes(ctx, testUserID, report)
+		if err == nil && notify && (ctx == nil || ctx.Err() == nil) {
+			service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "公共分组定时测试已完成")
+		}
+		return summary, err
+	}
 	channels, err := model.GetAllChannels(0, 0, true, false)
 	if err != nil {
 		return channelTestSummary{}, err
-	}
-	if strings.TrimSpace(mode) == "" {
-		mode = operation_setting.GetMonitorSetting().ChannelTestMode
 	}
 	selected := selectChannelsForAutomaticTest(channels, mode)
 	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
