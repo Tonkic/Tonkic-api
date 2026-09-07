@@ -42,6 +42,32 @@ func SetApiRouter(router *gin.Engine) {
 			perfMetricsRoute.GET("", controller.GetPerfMetrics)
 		}
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
+		ticketRoute := apiRouter.Group("/ticket")
+		ticketRoute.Use(middleware.TicketAuth())
+		{
+			ticketRoute.GET("", controller.ListTickets)
+			ticketRoute.POST("", controller.CreateTicket)
+			ticketRoute.GET("/:id", controller.GetTicket)
+			ticketRoute.POST("/:id/messages", controller.ReplyTicket)
+			ticketRoute.PATCH("/:id/close", controller.CloseTicket)
+		}
+		ticketAdminRoute := apiRouter.Group("/ticket/admin")
+		ticketAdminRoute.Use(middleware.AdminAuth())
+		{
+			ticketAdminRoute.GET("", controller.AdminListTickets)
+			ticketAdminRoute.GET("/:id", controller.AdminGetTicket)
+			ticketAdminRoute.POST("/:id/messages", controller.AdminReplyTicket)
+			ticketAdminRoute.PATCH("/:id", controller.AdminUpdateTicket)
+		}
+		riskRoute := apiRouter.Group("/risk")
+		riskRoute.Use(middleware.AdminAuth())
+		{
+			riskRoute.GET("/cases", controller.ListRiskCases)
+			riskRoute.POST("/scan", controller.RunRiskScan)
+			riskRoute.POST("/cases/:id/ignore", controller.IgnoreRiskCase)
+			riskRoute.POST("/cases/:id/ban", controller.BanRiskCase)
+			riskRoute.POST("/cases/:id/revert", controller.RevertRiskCase)
+		}
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)

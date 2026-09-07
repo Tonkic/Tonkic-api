@@ -193,6 +193,7 @@ func main() {
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
+	server.Use(middleware.RecordSecurityTelemetry())
 	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
@@ -331,6 +332,9 @@ func InitResources() error {
 	if common.IsMasterNode {
 		if err := model.MigrateRetiredFrontendOptions(); err != nil {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
+		}
+		if err := model.MigrateLegacyRiskSettingOption(); err != nil {
+			common.SysError("failed to migrate legacy risk setting option: " + err.Error())
 		}
 	}
 	model.InitOptionMap()
