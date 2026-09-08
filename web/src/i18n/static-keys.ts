@@ -20,6 +20,23 @@ For commercial licensing, please contact support@quantumnous.com
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
   'Account deletion',
+  // Ticket categories, statuses, priorities, and risk-account states/settings.
+  'Account',
+  'Bug',
+  'Suggestion',
+  'Pending support',
+  'Waiting for you',
+  'Closed',
+  'Low',
+  'Normal',
+  'High',
+  'open',
+  'ignored',
+  'banned',
+  'Risk scan interval (minutes)',
+  'Risk lookback window (days)',
+  'Automatic ban score',
+  'Minimum evidence categories',
   // Model management and metadata synchronization
   'Model management',
   'Select models',
