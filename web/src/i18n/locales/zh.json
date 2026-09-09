@@ -6154,6 +6154,12 @@
     "Enable account risk detection": "启用账户风险检测",
     "Analyze recent activity and create risk cases for administrator review.": "分析近期活动并创建风险案例，供管理员审核。",
     "Automatically ban extreme-risk accounts": "自动封禁高风险账户",
-    "Only bans accounts meeting multiple evidence categories, with no successful top-up or allowlist protection. Banned users can still submit appeal tickets.": "仅封禁满足多个证据类别、且没有成功充值或白名单保护的账户。被封禁用户仍可提交申诉工单。"
+    "Only bans accounts meeting multiple evidence categories, with no successful top-up or allowlist protection. Banned users can still submit appeal tickets.": "仅封禁满足多个证据类别、且没有成功充值或白名单保护的账户。被封禁用户仍可提交申诉工单。",
+    "Active risk cases": "当前风险案例",
+    "Risk history": "风险历史",
+    "Automatically banned": "自动封禁",
+    "Banned by this case": "由此案例封禁",
+    "Acknowledge ban": "确认并归档封禁",
+    "acknowledged": "已确认"
   }
 }

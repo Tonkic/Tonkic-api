@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	RiskCaseStatusOpen    = "open"
-	RiskCaseStatusIgnored = "ignored"
-	RiskCaseStatusBanned  = "banned"
+	RiskCaseStatusOpen         = "open"
+	RiskCaseStatusIgnored      = "ignored"
+	RiskCaseStatusBanned       = "banned"
+	RiskCaseStatusAcknowledged = "acknowledged"
 )
 
 type RiskCase struct {
@@ -129,7 +130,7 @@ func UpsertRiskCase(riskCase *RiskCase, users []RiskCaseUser) (bool, error) {
 			return err
 		}
 		if err == nil {
-			if existing.Status == RiskCaseStatusIgnored {
+			if existing.Status == RiskCaseStatusIgnored || existing.Status == RiskCaseStatusAcknowledged {
 				skipped = true
 				return nil
 			}
@@ -181,6 +182,16 @@ func ResolveRiskCase(id, reviewer int, status, resolution string) error {
 	return DB.Model(&RiskCase{}).Where("id = ?", id).Updates(map[string]any{
 		"status": status, "reviewed_by": reviewer, "reviewed_at": common.GetTimestamp(), "resolution": resolution,
 	}).Error
+}
+
+func AcknowledgeRiskBanCase(id, reviewer int) error {
+	return DB.Model(&RiskCase{}).
+		Where("id = ? AND status = ?", id, RiskCaseStatusBanned).
+		Updates(map[string]any{
+			"status":      RiskCaseStatusAcknowledged,
+			"reviewed_by": reviewer,
+			"reviewed_at": common.GetTimestamp(),
+		}).Error
 }
 
 func GetRiskCase(id int) (*RiskCase, error) {

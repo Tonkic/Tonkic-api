@@ -93,6 +93,32 @@ func BanRiskCase(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+func AcknowledgeRiskCase(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid risk case id")
+		return
+	}
+	riskCase, err := model.GetRiskCase(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if riskCase.Status == model.RiskCaseStatusAcknowledged {
+		common.ApiSuccess(c, nil)
+		return
+	}
+	if riskCase.Status != model.RiskCaseStatusBanned {
+		common.ApiErrorMsg(c, "only banned risk cases can be acknowledged")
+		return
+	}
+	if err := model.AcknowledgeRiskBanCase(id, c.GetInt("id")); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
 func RevertRiskCase(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -104,7 +130,7 @@ func RevertRiskCase(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if riskCase.Status != model.RiskCaseStatusBanned {
+	if riskCase.Status != model.RiskCaseStatusBanned && riskCase.Status != model.RiskCaseStatusAcknowledged {
 		common.ApiSuccess(c, nil)
 		return
 	}
