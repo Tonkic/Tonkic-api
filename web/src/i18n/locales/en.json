@@ -6052,6 +6052,12 @@
     "Enable account risk detection": "Enable account risk detection",
     "Analyze recent activity and create risk cases for administrator review.": "Analyze recent activity and create risk cases for administrator review.",
     "Automatically ban extreme-risk accounts": "Automatically ban extreme-risk accounts",
-    "Only bans accounts meeting multiple evidence categories, with no successful top-up or allowlist protection. Banned users can still submit appeal tickets.": "Only bans accounts meeting multiple evidence categories, with no successful top-up or allowlist protection. Banned users can still submit appeal tickets."
+    "Only bans accounts meeting multiple evidence categories, with no successful top-up or allowlist protection. Banned users can still submit appeal tickets.": "Only bans accounts meeting multiple evidence categories, with no successful top-up or allowlist protection. Banned users can still submit appeal tickets.",
+    "Active risk cases": "Active risk cases",
+    "Risk history": "Risk history",
+    "Automatically banned": "Automatically banned",
+    "Banned by this case": "Banned by this case",
+    "Acknowledge ban": "Acknowledge ban",
+    "acknowledged": "Acknowledged"
   }
 }

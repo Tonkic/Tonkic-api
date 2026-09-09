@@ -66,6 +66,7 @@ func SetApiRouter(router *gin.Engine) {
 			riskRoute.POST("/scan", controller.RunRiskScan)
 			riskRoute.POST("/cases/:id/ignore", controller.IgnoreRiskCase)
 			riskRoute.POST("/cases/:id/ban", controller.BanRiskCase)
+			riskRoute.POST("/cases/:id/acknowledge", controller.AcknowledgeRiskCase)
 			riskRoute.POST("/cases/:id/revert", controller.RevertRiskCase)
 		}
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
