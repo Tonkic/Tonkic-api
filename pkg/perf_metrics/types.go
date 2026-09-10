@@ -47,15 +47,21 @@ type QueryResult struct {
 	Groups       []GroupResult `json:"groups"`
 }
 
+type SuccessRatePoint struct {
+	Ts          int64   `json:"ts"`
+	SuccessRate float64 `json:"success_rate"`
+}
+
 type ModelSummary struct {
-	ModelName          string         `json:"model_name"`
-	AvgLatencyMs       int64          `json:"avg_latency_ms"`
-	SuccessRate        float64        `json:"success_rate"`
-	AvgTps             float64        `json:"avg_tps"`
-	RecentSuccessRates []float64      `json:"recent_success_rates,omitempty"`
-	HourlySeries       []StatusPoint  `json:"hourly_series"`
-	RequestCount       int64          `json:"-"`
-	Groups             []GroupSummary `json:"-"`
+	ModelName           string             `json:"model_name"`
+	AvgLatencyMs        int64              `json:"avg_latency_ms"`
+	SuccessRate         float64            `json:"success_rate"`
+	AvgTps              float64            `json:"avg_tps"`
+	RecentSuccessRates  []float64          `json:"recent_success_rates,omitempty"`
+	RecentSuccessSeries []SuccessRatePoint `json:"recent_success_series,omitempty"`
+	HourlySeries        []StatusPoint      `json:"hourly_series"`
+	RequestCount        int64              `json:"-"`
+	Groups              []GroupSummary     `json:"-"`
 }
 
 type GroupSummary struct {
