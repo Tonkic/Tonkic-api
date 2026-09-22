@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -156,9 +157,36 @@ func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm
 }
 
 func GetChannelOps(c *gin.Context) {
+	snapshot := model.CurrentRequestPolicy()
+	automaticDisable, source := snapshot.AutoDisable, "global"
+	if value, present := c.GetQuery("auto_ban"); present {
+		autoBan, err := strconv.ParseBool(value)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		automaticDisable = snapshot.AutoDisable && autoBan
+		if snapshot.AutoDisable {
+			source = "global_and_channel"
+			if !autoBan {
+				source = "channel"
+			}
+		}
+	}
 	common.ApiSuccess(c, gin.H{
-		"retry_times": common.RetryTimes,
+		"retry_times":    snapshot.RetryTimes,
+		"request_policy": gin.H{"automatic_disable": automaticDisable, "source": source},
 	})
+}
+
+func GetChannelDefaultBaseURLs(c *gin.Context) {
+	baseURLs := make(map[int]string)
+	for channelType, baseURL := range constant.ChannelBaseURLs {
+		if baseURL != "" {
+			baseURLs[channelType] = baseURL
+		}
+	}
+	common.ApiSuccess(c, baseURLs)
 }
 
 func GetAllChannels(c *gin.Context) {
@@ -431,14 +459,8 @@ func SearchChannels(c *gin.Context) {
 	}
 
 	total := len(channelData)
-	startIdx := (page - 1) * pageSize
-	if startIdx > total {
-		startIdx = total
-	}
-	endIdx := startIdx + pageSize
-	if endIdx > total {
-		endIdx = total
-	}
+	startIdx := min((page-1)*pageSize, total)
+	endIdx := min(startIdx+pageSize, total)
 
 	pagedData := channelData[startIdx:endIdx]
 
@@ -501,7 +523,7 @@ func GetChannelKey(c *gin.Context) {
 	}
 
 	// 记录操作审计日志（高危：查看渠道密钥）
-	recordManageAudit(c, "channel.key_view", map[string]interface{}{
+	recordManageAudit(c, "channel.key_view", map[string]any{
 		"id":   channelId,
 		"name": channel.Name,
 	})
@@ -510,11 +532,15 @@ func GetChannelKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "获取成功",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"key": channel.Key,
 		},
 	})
 }
+
+// maxTaskExtendPluginKeys bounds the plugins one New API channel can be
+// extended with; it comfortably covers every built-in and installed plugin.
+const maxTaskExtendPluginKeys = 32
 
 // validateChannel 通用的渠道校验函数
 func validateChannel(channel *model.Channel, isAdd bool) error {
@@ -550,8 +576,50 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
+	setting := channel.GetSetting()
+	if channel.Type != constant.ChannelTypeNewAPI && len(setting.TaskExtendPluginKeys) > 0 {
+		return fmt.Errorf("task_extend_plugin_keys is only supported on New API channels")
+	}
+	if channel.Type == constant.ChannelTypeNewAPI {
+		if len(setting.TaskExtendPluginKeys) > maxTaskExtendPluginKeys {
+			return fmt.Errorf("task_extend_plugin_keys must not exceed %d plugins", maxTaskExtendPluginKeys)
+		}
+		// The single key stays valid on a New API channel, so both bindings are
+		// checked as one set.
+		keys := setting.TaskExtendPluginKeys
+		if setting.TaskPluginKey != "" {
+			keys = append([]string{setting.TaskPluginKey}, keys...)
+		}
+		bound := make(map[string]struct{}, len(keys))
+		for _, key := range keys {
+			if key == "" || key != strings.TrimSpace(key) {
+				return fmt.Errorf("task plugin key %q is invalid", key)
+			}
+			if len(key) > 30 {
+				return fmt.Errorf("task plugin key must not exceed 30 characters")
+			}
+			if _, duplicate := bound[key]; duplicate {
+				return fmt.Errorf("task plugin %q is bound more than once", key)
+			}
+			plugin, ok := jsplugin.DefaultRegistry.Get(key)
+			if !ok {
+				return fmt.Errorf("task plugin %q is not registered", key)
+			}
+			if !plugin.Meta.SupportsUpstream(jsplugin.UpstreamKindNewAPI) {
+				return fmt.Errorf("task plugin %q does not support a New API upstream and cannot be bound to a New API channel", key)
+			}
+			bound[key] = struct{}{}
+		}
+	}
+
 	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {
 		return fmt.Errorf("New API channel base URL cannot be empty")
+	}
+	if channel.Type == constant.ChannelTypeVLLM && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("vLLM channel base URL cannot be empty")
+	}
+	if channel.Type == constant.ChannelTypeSGLang && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("SGLang channel base URL cannot be empty")
 	}
 
 	// 如果是添加操作，检查 channel 和 key 是否为空
@@ -650,7 +718,7 @@ func getVertexArrayKeys(keys string) ([]string, error) {
 	if keys == "" {
 		return nil, nil
 	}
-	var keyArray []interface{}
+	var keyArray []any
 	err := common.Unmarshal([]byte(keys), &keyArray)
 	if err != nil {
 		return nil, fmt.Errorf("批量添加 Vertex AI 必须使用标准的JsonArray格式，例如[{key1}, {key2}...]，请检查输入: %w", err)
@@ -686,7 +754,10 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 
-	if addChannelRequest.Channel != nil && addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin &&
+	// Binding a plugin needs the same permission on a New API channel as the
+	// type-61 channel dedicated to it.
+	if addChannelRequest.Channel != nil &&
+		(addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin || len(addChannelRequest.Channel.GetSetting().TaskPluginBindings()) > 0) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -726,7 +797,7 @@ func AddChannel(c *gin.Context) {
 			addChannelRequest.Channel.Key = strings.Join(array, "\n")
 		} else {
 			cleanKeys := make([]string, 0)
-			for _, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
+			for key := range strings.SplitSeq(addChannelRequest.Channel.Key, "\n") {
 				if key == "" {
 					continue
 				}
@@ -782,7 +853,7 @@ func AddChannel(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	createAudit := map[string]interface{}{
+	createAudit := map[string]any{
 		"name":  addChannelRequest.Channel.Name,
 		"type":  addChannelRequest.Channel.Type,
 		"count": len(channels),
@@ -821,7 +892,7 @@ func DeleteChannel(c *gin.Context) {
 	} else {
 		service.InvalidateProxyClient(channelProxy)
 	}
-	recordManageAudit(c, "channel.delete", map[string]interface{}{
+	recordManageAudit(c, "channel.delete", map[string]any{
 		"id":   id,
 		"name": channelName,
 	})
@@ -850,7 +921,7 @@ func DeleteDisabledChannel(c *gin.Context) {
 	if rows > 0 {
 		service.ResetProxyClientCache()
 	}
-	recordManageAudit(c, "channel.delete_disabled", map[string]interface{}{
+	recordManageAudit(c, "channel.delete_disabled", map[string]any{
 		"count": rows,
 	})
 	closeActiveChannelWebSockets(ids)
@@ -896,7 +967,7 @@ func DisableTagChannels(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
-	recordManageAudit(c, "channel.tag_disable", map[string]interface{}{
+	recordManageAudit(c, "channel.tag_disable", map[string]any{
 		"tag": channelTag.Tag,
 	})
 	closeActiveChannelWebSockets(ids)
@@ -923,7 +994,7 @@ func EnableTagChannels(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
-	recordManageAudit(c, "channel.tag_enable", map[string]interface{}{
+	recordManageAudit(c, "channel.tag_enable", map[string]any{
 		"tag": channelTag.Tag,
 	})
 	c.JSON(http.StatusOK, gin.H{
@@ -983,7 +1054,7 @@ func EditTagChannels(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
-	recordManageAudit(c, "channel.tag_edit", map[string]interface{}{
+	recordManageAudit(c, "channel.tag_edit", map[string]any{
 		"tag": channelTag.Tag,
 	})
 	c.JSON(http.StatusOK, gin.H{
@@ -1017,7 +1088,7 @@ func DeleteChannelBatch(c *gin.Context) {
 	if deletedCount > 0 {
 		service.ResetProxyClientCache()
 	}
-	recordManageAudit(c, "channel.delete_batch", map[string]interface{}{
+	recordManageAudit(c, "channel.delete_batch", map[string]any{
 		"count": deletedCount,
 	})
 	closeActiveChannelWebSockets(channelBatch.Ids)
@@ -1096,10 +1167,23 @@ func UpdateChannel(c *gin.Context) {
 	}
 	originProxy := originChannel.GetSetting().Proxy
 	proxyChanged := false
-	if _, settingProvided := requestData["setting"]; settingProvided {
+	_, settingProvided := requestData["setting"]
+	if settingProvided {
 		newProxy, _ := service.NormalizeProxyURL(channel.GetSetting().Proxy)
 		normalizedOriginProxy, originProxyErr := service.NormalizeProxyURL(originProxy)
 		proxyChanged = originProxyErr != nil || normalizedOriginProxy != newProxy
+	}
+	// Changing which plugins a channel binds needs the bind permission on any
+	// channel type; resubmitting an unchanged New API binding list does not, so
+	// administrators without it can still edit the rest of a gateway channel.
+	if settingProvided &&
+		!slices.Equal(channel.GetSetting().TaskPluginBindings(), originChannel.GetSetting().TaskPluginBindings()) &&
+		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "task plugin channels require the task_plugin.bind permission",
+		})
+		return
 	}
 
 	// Always copy the original ChannelInfo so that fields like IsMultiKey and MultiKeySize are retained.
@@ -1159,8 +1243,8 @@ func UpdateChannel(c *gin.Context) {
 					}
 				} else {
 					// 普通渠道的处理
-					inputKeys := strings.Split(channel.Key, "\n")
-					for _, key := range inputKeys {
+					inputKeys := strings.SplitSeq(channel.Key, "\n")
+					for key := range inputKeys {
 						key = strings.TrimSpace(key)
 						if key != "" {
 							newKeys = append(newKeys, key)
@@ -1222,7 +1306,7 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
-	updateAudit := map[string]interface{}{
+	updateAudit := map[string]any{
 		"id":             channel.Id,
 		"name":           channel.Name,
 		"changed_fields": changedFields,
@@ -1259,7 +1343,7 @@ func UpdateChannelStatus(c *gin.Context) {
 			closeActiveChannelWebSockets([]int{id})
 		}
 	}
-	recordManageAudit(c, "channel.status_update", map[string]interface{}{
+	recordManageAudit(c, "channel.status_update", map[string]any{
 		"id":      id,
 		"status":  req.Status,
 		"changed": changed,
@@ -1293,11 +1377,6 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 	if len(disabledIDs) > 0 {
 		closeActiveChannelWebSockets(disabledIDs)
 	}
-	recordManageAudit(c, "channel.status_update_batch", map[string]interface{}{
-		"count":  changedCount,
-		"total":  len(req.Ids),
-		"status": req.Status,
-	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -1471,7 +1550,7 @@ func BatchSetChannelTag(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
-	recordManageAudit(c, "channel.tag_batch_set", map[string]interface{}{
+	recordManageAudit(c, "channel.tag_batch_set", map[string]any{
 		"count": len(channelBatch.Ids),
 	})
 	c.JSON(http.StatusOK, gin.H{
@@ -1551,7 +1630,7 @@ func CopyChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道信息失败，请稍后重试"})
 		return
 	}
-	if origin.Type == constant.ChannelTypeTaskPlugin &&
+	if (origin.Type == constant.ChannelTypeTaskPlugin || len(origin.GetSetting().TaskPluginBindings()) > 0) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "task plugin channels require the task_plugin.bind permission"})
 		return
@@ -1582,7 +1661,7 @@ func CopyChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
-	recordManageAudit(c, "channel.copy", map[string]interface{}{
+	recordManageAudit(c, "channel.copy", map[string]any{
 		"sourceId": id,
 		"id":       clone.Id,
 		"name":     clone.Name,
@@ -1657,7 +1736,7 @@ func ManageMultiKeys(c *gin.Context) {
 	if request.Action == "get_key_status" {
 		markAuditLogged(c)
 	} else {
-		recordManageAudit(c, "channel.multi_key_manage", map[string]interface{}{
+		recordManageAudit(c, "channel.multi_key_manage", map[string]any{
 			"action": request.Action,
 			"id":     channel.Id,
 		})
@@ -1755,10 +1834,7 @@ func ManageMultiKeys(c *gin.Context) {
 
 		// Calculate range for current page
 		start := (page - 1) * pageSize
-		end := start + pageSize
-		if end > filteredTotal {
-			end = filteredTotal
-		}
+		end := min(start+pageSize, filteredTotal)
 
 		// Get the page data
 		var pageKeyStatusList []KeyStatus

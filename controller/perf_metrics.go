@@ -186,9 +186,10 @@ func GetPerfMetrics(c *gin.Context) {
 		return
 	}
 	result, err := perfmetrics.Query(perfmetrics.QueryParams{
-		Model: modelName,
-		Group: requestedGroup,
-		Hours: hours,
+		Model:         modelName,
+		Group:         requestedGroup,
+		Hours:         hours,
+		AllowedGroups: visibleGroups,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -199,7 +200,6 @@ func GetPerfMetrics(c *gin.Context) {
 	}
 
 	result.Groups = filterVisibleGroups(result.Groups, visibleGroups)
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    result,
