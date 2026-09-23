@@ -680,3 +680,27 @@ func TestResponsesWSErrorAttribution(t *testing.T) {
 		})
 	}
 }
+
+func TestResponsesWSSemanticContentGateSeparatesProtocolFromOutput(t *testing.T) {
+	text := "hello"
+	reasoning := "plan"
+	arguments := `{"city":"Paris"}`
+	for _, tc := range []struct {
+		name  string
+		event dto.ResponsesStreamResponse
+		want  bool
+	}{
+		{name: "created is protocol only", event: dto.ResponsesStreamResponse{Type: "response.created"}},
+		{name: "in progress is protocol only", event: dto.ResponsesStreamResponse{Type: "response.in_progress"}},
+		{name: "heartbeat is protocol only", event: dto.ResponsesStreamResponse{Type: "heartbeat"}},
+		{name: "text delta is semantic", event: dto.ResponsesStreamResponse{Type: "response.output_text.delta", Delta: text}, want: true},
+		{name: "reasoning delta is semantic", event: dto.ResponsesStreamResponse{Type: "response.reasoning_summary_text.delta", Delta: reasoning}, want: true},
+		{name: "reasoning part is semantic", event: dto.ResponsesStreamResponse{Type: "response.reasoning_summary_part.added", Part: &dto.ResponsesReasoningSummaryPart{Text: reasoning}}, want: true},
+		{name: "tool arguments are semantic", event: dto.ResponsesStreamResponse{Type: "response.function_call_arguments.delta", Arguments: &arguments}, want: true},
+		{name: "tool item is semantic", event: dto.ResponsesStreamResponse{Type: "response.output_item.added", Item: &dto.ResponsesOutput{Type: dto.BuildInCallFunctionCall}}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, responsesWSEventHasSemanticContent(tc.event))
+		})
+	}
+}

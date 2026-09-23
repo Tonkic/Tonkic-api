@@ -79,11 +79,12 @@ type responsesWSControl struct {
 // Only the request worker reads or changes billing state. Socket readers pass
 // bounded messages to it; cancellation never performs an independent refund.
 type responsesWSCallState struct {
-	inbox      chan responsesWSMessage
-	controls   chan responsesWSControl
-	done       chan struct{}
-	terminal   *responsesWSMessage
-	closeAfter bool
+	inbox           chan responsesWSMessage
+	controls        chan responsesWSControl
+	done            chan struct{}
+	terminal        *responsesWSMessage
+	closeAfter      bool
+	semanticStarted bool
 }
 
 type responsesWSSession struct {
@@ -104,16 +105,17 @@ type responsesWSSession struct {
 	stateMu       sync.Mutex
 	current       *responsesWSCallState
 
-	// These fields belong to the serial request worker and describe the actual
-	// established connection. Per-request token/user data is never stored here.
-	lastResponseID  string
-	lockedModel     string
-	lockedChannelID int
-	lockedGroup     string
-	lockedKey       string
-	lockedKeyIndex  int
-	lockedContext   map[appconstant.ContextKey]any
-	lockedRoute     dto.AdvancedCustomRoute
+	// These fields belong to the serial request worker and describe the
+	// candidate connection. It becomes reusable only after semantic output.
+	lastResponseID   string
+	connectionLocked bool
+	lockedModel      string
+	lockedChannelID  int
+	lockedGroup      string
+	lockedKey        string
+	lockedKeyIndex   int
+	lockedContext    map[appconstant.ContextKey]any
+	lockedRoute      dto.AdvancedCustomRoute
 }
 
 func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner ResponsesWSRequestRunner) *types.NewAPIError {
@@ -259,7 +261,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	common.SetContextKey(c, appconstant.ContextKeyRequestStartTime, time.Now())
 	service.GetChannelConstraints(c).AddFilter(appdto.ChannelFilter{Kind: appdto.FilterRequestPath, RequestPath: c.Request.URL.Path})
 
-	if s.lockedChannelID != 0 {
+	if s.connectionLocked {
 		if apiErr = s.restoreConnectionContext(c, modelName); apiErr != nil {
 			return apiErr
 		}
@@ -366,6 +368,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	}
 	idle := time.NewTimer(timeout)
 	defer idle.Stop()
+	semanticStarted := false
 	accepted := false
 	var pendingControl []byte
 	var sentControl []byte
@@ -375,6 +378,9 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		case incoming := <-state.inbox:
 			idle.Reset(timeout)
 			if incoming.err != nil {
+				if !semanticStarted {
+					s.closeTarget()
+				}
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, incoming.err)
 				state.closeAfter = true
 				ConsumeResponsesQuota(c, info, accumulator.Finish())
@@ -443,14 +449,18 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 					return rejected
 				}
 				if strings.HasPrefix(event.Type, "response.") {
-					if !accepted {
-						// Like HTTP, bind the session only once upstream accepted the request.
-						service.RecordChannelAffinity(c, s.lockedChannelID)
-					}
+					// Protocol events prove that the upstream accepted the request,
+					// but do not establish semantic output or provider affinity.
 					accepted = true
 					if event.Response != nil && event.Response.ID != "" {
 						responseID = event.Response.ID
 					}
+				}
+				if responsesWSEventHasSemanticContent(event.ResponsesStreamResponse) && !semanticStarted {
+					semanticStarted = true
+					state.semanticStarted = true
+					s.connectionLocked = true
+					service.RecordChannelAffinity(c, s.lockedChannelID)
 				}
 				accumulator.Observe(&event.ResponsesStreamResponse)
 			}
@@ -459,9 +469,12 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				if event.Response != nil {
 					s.lastResponseID = event.Response.ID
 				}
+				if !semanticStarted {
+					s.closeTarget()
+				}
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				state.terminal = &incoming
 				ConsumeResponsesQuota(c, info, accumulator.Finish())
+				state.terminal = &incoming
 				return nil
 			}
 			if err := s.writeClient(incoming.kind, incoming.body); err != nil {
@@ -498,6 +511,35 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			return nil
 		}
 	}
+}
+
+// responsesWSEventHasSemanticContent deliberately excludes lifecycle events.
+// A provider may emit response.created/in_progress (or heartbeat) before it
+// produces output; those events are safe failover points. Text, reasoning, and
+// tool-call payloads are irreversible output and therefore lock the provider.
+func responsesWSEventHasSemanticContent(event dto.ResponsesStreamResponse) bool {
+	if strings.TrimSpace(event.Delta) != "" || event.Text != nil && strings.TrimSpace(*event.Text) != "" {
+		switch event.Type {
+		case "response.output_text.delta", "response.output_text.done",
+			"response.reasoning_summary_text.delta", "response.reasoning_summary_text.done",
+			"response.reasoning_text.delta", "response.reasoning_text.done",
+			"response.refusal.delta", "response.refusal.done":
+			return true
+		}
+	}
+	if event.Arguments != nil && strings.TrimSpace(*event.Arguments) != "" {
+		return strings.HasPrefix(event.Type, "response.function_call_arguments.")
+	}
+	if event.Item != nil {
+		switch event.Item.Type {
+		case dto.BuildInCallWebSearchCall, dto.BuildInCallFileSearchCall, dto.BuildInCallFunctionCall, dto.BuildInCallToolUse:
+			return strings.HasPrefix(event.Type, "response.output_item.") || strings.HasPrefix(event.Type, "response.content_part.")
+		}
+	}
+	if event.Part != nil && strings.TrimSpace(event.Part.Text) != "" {
+		return strings.HasPrefix(event.Type, "response.reasoning_summary_part.")
+	}
+	return false
 }
 
 // A single generation is active, but a cancel can fail independently. Correlate

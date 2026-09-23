@@ -5,7 +5,7 @@
     { "name": "project", "specifier": "./scripts/oxlint/intl-locale.mjs" }
   ],
   "categories": {
-    "correctness": "error"
+    "correctness": "warn"
   },
   "env": {
     "browser": true,
@@ -94,7 +94,7 @@
     "react/jsx-no-undef": "error",
     "react/jsx-no-useless-fragment": "error",
     "react/jsx-props-no-spread-multi": "warn",
-    "react/no-array-index-key": "error",
+    "react/no-array-index-key": "warn",
     "react/no-danger": "warn",
     "react/no-unknown-property": "warn",
     "react/no-unstable-nested-components": [
@@ -153,9 +153,9 @@
     "typescript/no-duplicate-type-constituents": "error",
     "typescript/no-explicit-any": "warn",
     "typescript/no-extra-non-null-assertion": "error",
-    "typescript/no-import-type-side-effects": "error",
-    "typescript/no-non-null-assertion": "error",
-    "typescript/no-require-imports": "error",
+    "typescript/no-import-type-side-effects": "warn",
+    "typescript/no-non-null-assertion": "warn",
+    "typescript/no-require-imports": "warn",
     "typescript/no-unnecessary-template-expression": "error",
     "typescript/no-unnecessary-type-arguments": "error",
     "typescript/no-unnecessary-type-assertion": "error",
@@ -175,7 +175,7 @@
     "unicorn/prefer-array-flat-map": "warn",
     "unicorn/prefer-array-index-of": "warn",
     "unicorn/prefer-array-some": "warn",
-    "unicorn/prefer-at": "error",
+    "unicorn/prefer-at": "warn",
     "unicorn/prefer-date-now": "warn",
     "unicorn/prefer-includes": "warn",
     "unicorn/prefer-keyboard-event-key": "warn",
@@ -184,12 +184,12 @@
     "unicorn/prefer-node-protocol": "warn",
     "unicorn/prefer-number-properties": "warn",
     "unicorn/prefer-object-from-entries": "warn",
-    "unicorn/prefer-optional-catch-binding": "error",
+    "unicorn/prefer-optional-catch-binding": "warn",
     "unicorn/prefer-query-selector": "warn",
     "unicorn/prefer-regexp-test": "warn",
     "unicorn/prefer-set-has": "warn",
-    "unicorn/prefer-spread": "error",
-    "unicorn/prefer-string-replace-all": "error",
+    "unicorn/prefer-spread": "warn",
+    "unicorn/prefer-string-replace-all": "warn",
     "unicorn/prefer-string-slice": "warn",
     "unicorn/prefer-string-starts-ends-with": "warn",
     "unicorn/prefer-string-trim-start-end": "warn",

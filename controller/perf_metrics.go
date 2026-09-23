@@ -119,6 +119,9 @@ func visibleMetricGroups(c *gin.Context, includeAuto bool) []string {
 	} else {
 		usable := service.GetUserUsableGroups(c.GetString("group"))
 		for group := range activeRatios {
+			if group == "all-with-team" {
+				continue
+			}
 			if _, ok := usable[group]; ok {
 				groups = append(groups, group)
 			}

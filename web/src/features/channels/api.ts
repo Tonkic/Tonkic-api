@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { AxiosResponse } from 'axios'
 import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
@@ -147,7 +148,12 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
 export async function getChannelOps(
   autoBan?: boolean
 ): Promise<ChannelOpsResponse> {
-  const res = await api.get('/api/channel/ops', {
+  const res = await api.get<
+    ChannelOpsResponse,
+    AxiosResponse<ChannelOpsResponse>,
+    unknown,
+    Record<string, unknown>
+  >('/api/channel/ops', {
     ...channelActionConfig(),
     params: autoBan === undefined ? undefined : { auto_ban: autoBan },
   })
