@@ -105,17 +105,18 @@ type responsesWSSession struct {
 	stateMu       sync.Mutex
 	current       *responsesWSCallState
 
-	// These fields belong to the serial request worker and describe the
-	// candidate connection. It becomes reusable only after semantic output.
-	lastResponseID   string
-	connectionLocked bool
-	lockedModel      string
-	lockedChannelID  int
-	lockedGroup      string
-	lockedKey        string
-	lockedKeyIndex   int
-	lockedContext    map[appconstant.ContextKey]any
-	lockedRoute      dto.AdvancedCustomRoute
+	// These fields belong to the serial request worker. Lifecycle-only terminal
+	// events permit physical reuse; semantic output additionally locks affinity.
+	lastResponseID     string
+	connectionReusable bool
+	connectionLocked   bool
+	lockedModel        string
+	lockedChannelID    int
+	lockedGroup        string
+	lockedKey          string
+	lockedKeyIndex     int
+	lockedContext      map[appconstant.ContextKey]any
+	lockedRoute        dto.AdvancedCustomRoute
 }
 
 func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner ResponsesWSRequestRunner) *types.NewAPIError {
@@ -261,7 +262,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	common.SetContextKey(c, appconstant.ContextKeyRequestStartTime, time.Now())
 	service.GetChannelConstraints(c).AddFilter(appdto.ChannelFilter{Kind: appdto.FilterRequestPath, RequestPath: c.Request.URL.Path})
 
-	if s.connectionLocked {
+	if s.connectionLocked || s.connectionReusable {
 		if apiErr = s.restoreConnectionContext(c, modelName); apiErr != nil {
 			return apiErr
 		}
@@ -434,6 +435,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 						s.lastResponseID = responseID
 						state.terminal, state.closeAfter = &incoming, ambiguous
+						s.connectionReusable = s.getTarget() != nil
 						ConsumeResponsesQuota(c, info, accumulator.Finish())
 						return nil
 					}
@@ -469,10 +471,8 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				if event.Response != nil {
 					s.lastResponseID = event.Response.ID
 				}
-				if !semanticStarted {
-					s.closeTarget()
-				}
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+				s.connectionReusable = s.getTarget() != nil
 				ConsumeResponsesQuota(c, info, accumulator.Finish())
 				state.terminal = &incoming
 				return nil

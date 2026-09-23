@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -437,9 +439,23 @@ func (releasedAuditLog) TableName() string { return "logs" }
 func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 	t.Helper()
 	if kind == "sqlite" {
-		path := t.TempDir() + "/audit.db"
+		path := filepath.Join(t.TempDir(), "audit.db")
 		db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 		require.NoError(t, err)
+		t.Cleanup(func() {
+			connection, err := db.DB()
+			if err == nil {
+				_ = connection.Close()
+			}
+			runtime.GC()
+			for range 10 {
+				if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+					break
+				}
+				runtime.GC()
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
 		return db, path
 	}
 	require.NotEmpty(t, dsn)
@@ -490,6 +506,7 @@ func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 		if err == nil {
 			_ = connection.Close()
 		}
+		runtime.GC()
 	})
 	return db, newDSN
 }
@@ -666,6 +683,10 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						t.Setenv("SQL_DSN", isolatedDSN)
 					}
 					model.DB, model.LOG_DB = db, db
+					t.Cleanup(func() {
+						_ = model.CloseDB()
+						runtime.GC()
+					})
 					common.SetDatabaseTypes(tc.typ, tc.typ)
 					versionSQL := "SELECT version()"
 					if tc.name == "sqlite" {
@@ -680,10 +701,14 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						require.NoError(t, db.Create(&releasedAuditUser{Username: "released-owner", Password: "placeholder", AccessToken: &legacy, AffCode: "released-aff", Quota: 1234}).Error)
 						require.NoError(t, db.Create(&releasedAuditLog{UserId: 1, Type: model.LogTypeLogin, Content: "historical login", CreatedAt: 100, RequestId: "legacy-request"}).Error)
 					}
-					for range 2 {
+					for iteration := 0; iteration < 2; iteration++ {
+						if iteration > 0 {
+							require.NoError(t, model.CloseDB())
+						}
 						require.NoError(t, model.InitDB())
 						require.NoError(t, model.InitLogDB())
 					}
+					db = model.DB
 					if !upgrade {
 						require.NoError(t, db.Create(&model.User{Username: "fresh-owner", Password: "placeholder", AffCode: "fresh-aff"}).Error)
 					}

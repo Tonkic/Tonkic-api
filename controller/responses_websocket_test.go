@@ -546,6 +546,10 @@ func TestResponsesWebSocketReusesConnectionAndSettlesEachRequest(t *testing.T) {
 			}
 			event.Authorization = r.Header.Get("Authorization")
 			received <- event
+			semantic := `{"type":"response.output_text.delta","delta":"ok"}`
+			if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(semantic))) {
+				return
+			}
 			if index == 2 {
 				duplicate := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010}}}`
 				if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(duplicate))) {
@@ -565,17 +569,18 @@ func TestResponsesWebSocketReusesConnectionAndSettlesEachRequest(t *testing.T) {
 		`{"type":"response.create","model":"ws-billing","input":"second","previous_response_id":"resp_1","service_tier":"priority"}`,
 	} {
 		require.NoError(t, client.WriteMessage(websocket.TextMessage, []byte(payload)))
-		require.NoError(t, client.SetReadDeadline(time.Now().Add(3*time.Second)))
-		_, data, err := client.ReadMessage()
-		require.NoError(t, err)
 		var terminal struct {
 			Type     string `json:"type"`
 			Response struct {
 				ID string `json:"id"`
 			} `json:"response"`
 		}
-		require.NoError(t, common.Unmarshal(data, &terminal))
-		require.Equal(t, "response.completed", terminal.Type, "unexpected response: %s", data)
+		for terminal.Type != "response.completed" {
+			require.NoError(t, client.SetReadDeadline(time.Now().Add(3*time.Second)))
+			_, data, err := client.ReadMessage()
+			require.NoError(t, err)
+			require.NoError(t, common.Unmarshal(data, &terminal))
+		}
 		assert.Equal(t, fmt.Sprintf("resp_%d", index+1), terminal.Response.ID)
 		observed := <-received
 		assert.Equal(t, "Bearer upstream-first", observed.Authorization)

@@ -88,6 +88,10 @@ func setupSecurityEnrollmentTest(t *testing.T) (*model.User, service.AuthIdentit
 		connection, err := db.DB()
 		if err == nil {
 			_ = connection.Close()
+			logConnection, logErr := logDB.DB()
+			if logErr == nil {
+				_ = logConnection.Close()
+			}
 		}
 	})
 	password, err := common.Password2Hash("enrollment-password")
