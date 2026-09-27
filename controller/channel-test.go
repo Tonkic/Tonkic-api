@@ -941,7 +941,7 @@ func excludeAutomaticChannelTestModels(models, patterns []string) []string {
 	return filtered
 }
 
-var publicProbeGroups = map[string]struct{}{"0.05羊毛": {}, "0.1": {}, "0.2": {}}
+var publicProbeGroups = map[string]struct{}{"0.05羊毛": {}, "0.1": {}, "0.15不降智": {}, "0.2": {}}
 
 func isPublicProbeGroup(group string) bool {
 	_, ok := publicProbeGroups[strings.TrimSpace(group)]

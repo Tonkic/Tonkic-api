@@ -356,6 +356,7 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 func TestPublicProbeGroupSelection(t *testing.T) {
 	assert.True(t, isPublicProbeGroup(" 0.05羊毛 "))
 	assert.True(t, isPublicProbeGroup("0.1"))
+	assert.True(t, isPublicProbeGroup("0.15不降智"))
 	assert.True(t, isPublicProbeGroup("0.2"))
 	assert.False(t, isPublicProbeGroup("all-with-team"))
 	assert.False(t, isPublicProbeGroup("0.05"))
@@ -363,18 +364,19 @@ func TestPublicProbeGroupSelection(t *testing.T) {
 
 func TestPublicScheduledProbeTargetsOnlyIncludePublicTextModels(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
-	channel := &model.Channel{Name: "probe", Status: common.ChannelStatusEnabled, Group: "0.1,all-with-team", Models: "gpt-5.6-sol,gpt-image-2"}
+	channel := &model.Channel{Name: "probe", Status: common.ChannelStatusEnabled, Group: "0.1,0.15不降智,all-with-team", Models: "gpt-5.6-sol,gpt-image-2"}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create([]model.Ability{
 		{Group: "0.1", Model: "gpt-5.6-sol", ChannelId: channel.Id, Enabled: true},
 		{Group: "0.1", Model: "gpt-image-2", ChannelId: channel.Id, Enabled: true},
+		{Group: "0.15不降智", Model: "gpt-5.6-sol", ChannelId: channel.Id, Enabled: true},
 		{Group: "all-with-team", Model: "gpt-5.6-sol", ChannelId: channel.Id, Enabled: true},
 	}).Error)
 
 	targets, err := publicScheduledProbeTargets()
 
 	require.NoError(t, err)
-	require.Equal(t, []model.EnabledModelGroup{{Group: "0.1", Model: "gpt-5.6-sol"}}, targets)
+	require.ElementsMatch(t, []model.EnabledModelGroup{{Group: "0.1", Model: "gpt-5.6-sol"}, {Group: "0.15不降智", Model: "gpt-5.6-sol"}}, targets)
 }
 
 func TestPublicProbeCompletedRequiresSuccessfulCompleteResponse(t *testing.T) {
