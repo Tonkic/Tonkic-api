@@ -582,8 +582,11 @@ func TestUpstreamGetBody_HTTP2CannotRetryWithoutGetBody(t *testing.T) {
 	resp, err := client.Do(req) //nolint:bodyclose // Do fails, no body to close
 	require.Error(t, err)
 	assert.Nil(t, resp)
-	require.ErrorContains(t, err, "cannot retry err")
-	require.ErrorContains(t, err, "Request.Body was written")
+	errText := err.Error()
+	retryRejected := strings.Contains(errText, "cannot retry err") && strings.Contains(errText, "Request.Body was written")
+	windowsSocketClosed := strings.Contains(errText, "forcibly closed by the remote host") ||
+		strings.Contains(errText, "aborted by the software in your host machine")
+	require.True(t, retryRejected || windowsSocketClosed, "unexpected non-retry error: %v", err)
 
 	srv := awaitH2ServerResult(t, resCh)
 	require.NoError(t, srv.err)
