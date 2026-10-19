@@ -30,10 +30,12 @@ export async function getPublicModelStatus(): Promise<PublicModelStatusData> {
 }
 
 export async function getPerfMetricsSummary(
-  hours = 24
+  hours = 24,
+  recentModels?: string[]
 ): Promise<PerfSummaryAllData> {
   const res = await api.get<PerfSummaryAllData>('/api/perf-metrics/summary', {
-    params: { hours },
+    params: { hours, recent_model: recentModels },
+    paramsSerializer: { indexes: null },
   })
   return res.data
 }

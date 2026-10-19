@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -80,7 +79,10 @@ func ClaimCompensation(code string, userId int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("领取补偿活动 %s，额度 %s", campaign.Name, logger.LogQuota(campaign.Quota)))
+	RecordLog(userId, LogTypeTopup, common.NewMessage("Claimed compensation campaign {{name}}, quota {{quota}}", map[string]any{
+		"name":  campaign.Name,
+		"quota": logger.FormatQuota(campaign.Quota),
+	}))
 	return campaign.Quota, nil
 }
 
