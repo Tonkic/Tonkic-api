@@ -58,6 +58,34 @@ func makeRelayInfo(expr string, groupRatio float64, estPrompt, estCompletion int
 	}
 }
 
+func TestApplyBPSLocalCacheWriteAsRead(t *testing.T) {
+	params := billingexpr.TokenParams{P: 100, C: 20, CR: 30, CC: 40, CC1h: 50, Len: 220000}
+
+	converted := ApplyBPSLocalCacheWriteAsRead(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 82}}, params)
+	require.Equal(t, 120.0, converted.CR)
+	require.Zero(t, converted.CC)
+	require.Zero(t, converted.CC1h)
+	require.Equal(t, params.P, converted.P)
+	require.Equal(t, params.C, converted.C)
+	require.Equal(t, params.Len, converted.Len)
+
+	unchanged := ApplyBPSLocalCacheWriteAsRead(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 81}}, params)
+	require.Equal(t, params, unchanged)
+}
+
+func TestApplyBPSLocalCacheWriteAsReadUsesCacheReadPrice(t *testing.T) {
+	expr := `tier("default", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc1h * 12.5)`
+	info := makeRelayInfo(expr, 1, 1000, 300)
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 82}
+	params := ApplyBPSLocalCacheWriteAsRead(info, billingexpr.TokenParams{P: 1000, C: 300, CR: 100000, CC: 100000, CC1h: 100000, Len: 100000})
+
+	ok, quota, result := TryTieredSettle(info, params)
+	require.True(t, ok)
+	require.NotNil(t, result)
+	// (1000*10 + 300*50 + 300000*1) / 1M * 500000 = 162500.
+	require.Equal(t, 162500, quota)
+}
+
 // ---------------------------------------------------------------------------
 // Existing tests (preserved)
 // ---------------------------------------------------------------------------

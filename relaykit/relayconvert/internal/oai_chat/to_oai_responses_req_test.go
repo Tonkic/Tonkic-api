@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"strings"
 )
 
 func TestChatCompletionsRequestToResponsesRequestInstructionsAndTools(t *testing.T) {
@@ -206,4 +207,20 @@ func assistantMessageWithTool(content string, id string, name string, args strin
 		},
 	})
 	return msg
+}
+
+func TestChatCompletionsRequestToResponsesRequestPreservesSchemaOrderAndNumbers(t *testing.T) {
+	got, err := ChatCompletionsRequestToResponsesRequest(context.Background(), &dto.GeneralOpenAIRequest{
+		Model:    "gpt-test",
+		Messages: []dto.Message{{Role: "user", Content: "hello"}},
+		ResponseFormat: &dto.ResponseFormat{
+			Type:       "json_schema",
+			JsonSchema: json.RawMessage(`{"name":"answer","schema":{"type":"object","properties":{"z":{"type":"integer","minimum":9007199254740993},"a":{"type":"string"}}}}`),
+		},
+	})
+	require.NoError(t, err)
+
+	schema := string(gjson.GetBytes(got.Text, "format.schema.properties").Raw)
+	assert.Contains(t, schema, `"minimum":9007199254740993`)
+	assert.Less(t, strings.Index(schema, `"z"`), strings.Index(schema, `"a"`))
 }

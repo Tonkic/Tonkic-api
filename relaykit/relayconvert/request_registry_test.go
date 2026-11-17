@@ -2,6 +2,7 @@ package relayconvert
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -1041,4 +1042,28 @@ func mustMarshalRequestJSON(t *testing.T, value any) []byte {
 	raw, err := kitutil.Marshal(value)
 	require.NoError(t, err)
 	return raw
+}
+
+func TestConvertRequestPreservesResponsesFunctionSchema(t *testing.T) {
+	const schema = `{"type":"object","properties":{"z":{"type":"integer","minimum":9007199254740993},"a":{"type":"number","multipleOf":0.1234567890123456789}},"required":["z"]}`
+	var request dto.OpenAIResponsesRequest
+	require.NoError(t, kitutil.Unmarshal([]byte(`{"model":"gpt-test","input":"hello","tools":[{"type":"function","name":"lookup","parameters":`+schema+`}]}`), &request))
+
+	result, err := ConvertRequest(context.Background(), &convmeta.Values{}, types.RelayFormatOpenAI, &request)
+	require.NoError(t, err)
+	chat, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.Len(t, chat.Tools, 1)
+	parameters, err := kitutil.Marshal(chat.Tools[0].Function.Parameters)
+	require.NoError(t, err)
+	assert.Equal(t, schema, string(parameters))
+
+	result, err = ConvertRequest(context.Background(), &convmeta.Values{}, types.RelayFormatOpenAIResponses, chat)
+	require.NoError(t, err)
+	responses, ok := result.Value.(*dto.OpenAIResponsesRequest)
+	require.True(t, ok)
+	var tools []json.RawMessage
+	require.NoError(t, kitutil.Unmarshal(responses.Tools, &tools))
+	require.Len(t, tools, 1)
+	assert.Equal(t, schema, string(kitutil.ObjectMember(tools[0], "parameters")))
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"strings"
 )
 
 func TestResponsesRequestToChatCompletionsRequestInstructionsAndScalarInput(t *testing.T) {
@@ -220,7 +221,9 @@ func TestResponsesRequestToChatCompletionsRequestToolsToolChoiceAndTextFormat(t 
 	assert.Equal(t, "function", got.Tools[0].Type)
 	assert.Equal(t, "lookup", got.Tools[0].Function.Name)
 	assert.Equal(t, "Lookup data", got.Tools[0].Function.Description)
-	assert.Equal(t, "object", got.Tools[0].Function.Parameters.(map[string]any)["type"])
+	parameters, err := kitutil.Marshal(got.Tools[0].Function.Parameters)
+	require.NoError(t, err)
+	assert.Equal(t, "object", gjson.GetBytes(parameters, "type").String())
 	assert.Equal(t, map[string]any{
 		"type": "function",
 		"function": map[string]any{
@@ -543,4 +546,20 @@ func mustRawMessage(t *testing.T, value any) []byte {
 	raw, err := kitutil.Marshal(value)
 	require.NoError(t, err)
 	return raw
+}
+
+func TestResponsesRequestToChatCompletionsRequestPreservesRawSchemaAndToolParameters(t *testing.T) {
+	reqBody := []byte(`{"model":"gpt-test","input":"hello","tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"z":{"type":"integer","minimum":9007199254740993},"a":{"type":"string"}}}}],"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object","properties":{"z":{"type":"integer","minimum":9007199254740993},"a":{"type":"string"}}}}}}`)
+	var req dto.OpenAIResponsesRequest
+	require.NoError(t, kitutil.Unmarshal(reqBody, &req))
+
+	got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &req)
+	require.NoError(t, err)
+	require.Len(t, got.Tools, 1)
+	parameters, err := kitutil.Marshal(got.Tools[0].Function.Parameters)
+	require.NoError(t, err)
+	assert.Contains(t, string(parameters), `"minimum":9007199254740993`)
+	assert.Less(t, strings.Index(string(parameters), `"z"`), strings.Index(string(parameters), `"a"`))
+	assert.Equal(t, `"answer"`, gjson.GetBytes(got.ResponseFormat.JsonSchema, "name").Raw)
+	assert.Contains(t, string(got.ResponseFormat.JsonSchema), `"minimum":9007199254740993`)
 }

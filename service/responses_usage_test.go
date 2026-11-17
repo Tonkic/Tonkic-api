@@ -276,11 +276,19 @@ func TestResponsesUsageAccumulatorMissingUsageEstimation(t *testing.T) {
 			wantCompletion: tokenkit.Count(model, summary+arguments),
 		},
 		{
-			name: "created only then disconnect bills the prompt",
+			name: "custom tool input delivered before disconnect stays billable",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.created", Response: inProgress},
+				{Type: "response.custom_tool_call_input.delta", Delta: arguments},
+			},
+			wantPrompt:     100,
+			wantCompletion: tokenkit.Count(model, arguments),
+		},
+		{
+			name: "created only then disconnect without output bills nothing",
 			events: []dto.ResponsesStreamResponse{
 				{Type: "response.created", Response: inProgress},
 			},
-			wantPrompt: 100,
 		},
 		{
 			name: "incomplete without usage bills the prompt",
@@ -339,4 +347,42 @@ func TestResponsesUsageAccumulatorMissingUsageEstimation(t *testing.T) {
 			assert.Equal(t, tc.wantPrompt+tc.wantCompletion, usage.TotalTokens)
 		})
 	}
+}
+
+// A start envelope alone is not evidence of delivered billable output.
+func TestResponsesUsageAccumulatorNoTerminalNoOutputNoCharge(t *testing.T) {
+	for _, events := range [][]dto.ResponsesStreamResponse{
+		{{Type: "response.created", Response: &dto.OpenAIResponsesResponse{Status: []byte(`"in_progress"`)}}},
+		{{Type: "response.created"}, {Type: "response.in_progress"}},
+		{{Type: "response.output_text.delta", Delta: ""}},
+	} {
+		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"}, StreamStatus: relaycommon.NewStreamStatus()}
+		info.SetEstimatePromptTokens(144609)
+		info.StreamStatus.RequireTerminal()
+		acc := NewResponsesUsageAccumulator(info)
+		for i := range events {
+			acc.Observe(&events[i], nil)
+		}
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+		usage := acc.Finish()
+		require.Zero(t, usage.PromptTokens)
+		require.Zero(t, usage.CompletionTokens)
+		require.Zero(t, usage.TotalTokens)
+		require.Zero(t, usage.PromptTokensDetails.CachedTokens)
+		require.Same(t, usage, acc.Finish())
+	}
+}
+
+func TestResponsesUsageAccumulatorZeroOutputPreservesNativeUsage(t *testing.T) {
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"}, StreamStatus: relaycommon.NewStreamStatus()}
+	info.SetEstimatePromptTokens(144609)
+	acc := NewResponsesUsageAccumulator(info)
+	native := &dto.Usage{InputTokens: 144609, OutputTokens: 0, InputTokensDetails: &dto.InputTokenDetails{CachedTokens: 144000}}
+	native.BillingUsage = dto.NewOpenAIResponsesBillingUsage(native)
+	acc.Observe(&dto.ResponsesStreamResponse{Type: "response.completed", Response: &dto.OpenAIResponsesResponse{Status: []byte(`"completed"`), Usage: native}}, nil)
+	usage := acc.Finish()
+	require.Equal(t, 144609, usage.PromptTokens)
+	require.Zero(t, usage.CompletionTokens)
+	require.Equal(t, 144000, usage.PromptTokensDetails.CachedTokens)
+	require.NotNil(t, usage.BillingUsage)
 }

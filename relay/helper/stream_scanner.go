@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,11 +27,11 @@ const (
 	InitialScannerBufferSize    = 64 << 10  // 64KB (64*1024)
 	DefaultMaxScannerBufferSize = 128 << 20 // 64MB (64*1024*1024) default SSE buffer size
 	DefaultPingInterval         = 10 * time.Second
-	// streamWriteTimeout bounds a single blocked write to a slow client so the
-	// unconditional wg.Wait() in cleanup can always finish. Without it, a slow
-	// but connected client (full TCP buffer, no server WriteTimeout) could hang
-	// the handler forever.
-	streamWriteTimeout = 30 * time.Second
+	// streamWriteTimeout bounds a write blocked on a client that stopped
+	// reading so cleanup can always join the stream goroutines. The budget adds
+	// time for a connected client to drain the bytes already written.
+	streamWriteTimeout  = 30 * time.Second
+	streamMinClientRate = 8 << 10 // bytes per second
 )
 
 func getScannerBufferSize() int {
@@ -70,11 +71,53 @@ func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
 	}
 }
 
+// StreamWriteBudget gives each write a deadline that includes the time a slow
+// client needs to drain all bytes written so far. A fixed deadline per write
+// can cut off a large event even while the client is reading normally.
+type StreamWriteBudget struct {
+	drainBy time.Time
+}
+
+// Deadline returns the write deadline for n more bytes written at now.
+func (b *StreamWriteBudget) Deadline(now time.Time, n int) time.Time {
+	if b.drainBy.Before(now) {
+		b.drainBy = now
+	}
+	b.drainBy = b.drainBy.Add(time.Duration(n) * time.Second / streamMinClientRate)
+	return b.drainBy.Add(streamWriteTimeout)
+}
+
+// streamResponseWriter sets the connection write deadline from the stream
+// budget. Writers without deadline support, such as httptest recorders, are
+// ignored. Unwrap preserves ResponseController access to the real writer.
+type streamResponseWriter struct {
+	gin.ResponseWriter
+	budget StreamWriteBudget
+}
+
+func (w *streamResponseWriter) Write(p []byte) (int, error) {
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(w.budget.Deadline(time.Now(), len(p)))
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *streamResponseWriter) WriteString(s string) (int, error) {
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(w.budget.Deadline(time.Now(), len(s)))
+	return w.ResponseWriter.WriteString(s)
+}
+
+func (w *streamResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // ExtendWriteDeadline pushes the connection write deadline forward before each
 // stream write. Best-effort: writers that don't support deadlines (e.g.
 // httptest recorders) are silently ignored.
 func ExtendWriteDeadline(c *gin.Context) {
 	if c == nil || c.Writer == nil {
+		return
+	}
+	if writer, ok := c.Writer.(*streamResponseWriter); ok {
+		_ = http.NewResponseController(writer.ResponseWriter).SetWriteDeadline(writer.budget.Deadline(time.Now(), 0))
 		return
 	}
 	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(streamWriteTimeout))
@@ -207,6 +250,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		heartbeat bool
 	}
 	streamChan := make(chan streamEvent, 10)
+	sr := newStreamResult(info.StreamStatus)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -218,7 +262,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			stop()
 			wg.Done()
 		}()
-		sr := newStreamResult(info.StreamStatus)
 		downstreamDataWritten := false
 		for event := range streamChan {
 			if event.heartbeat {
@@ -302,18 +345,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 
-			if len(data) < 6 {
-				continue
-			}
-			if data[:5] != "data:" && data[:6] != "[DONE]" {
-				continue
-			}
-			data = data[5:]
+			data, hasDataPrefix := strings.CutPrefix(data, "data:")
 			data = strings.TrimSpace(data)
+			if !hasDataPrefix && data != "[DONE]" {
+				continue
+			}
 			if data == "" {
 				continue
 			}
-			if !strings.HasPrefix(data, "[DONE]") {
+			if data != "[DONE]" {
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
 
@@ -331,6 +371,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 		}
 
+		// Closing the upstream body is part of stopping the scanner. Do not let
+		// the resulting EOF replace a client cancellation or handler stop.
+		if ctx.Err() != nil {
+			return
+		}
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, common.LogText("scanner error: %s", err.Error()))
@@ -353,6 +398,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	cleanup()
+	// A client cancellation can win while the completion callback is still
+	// writing. Once all callbacks joined, a delivered completed Responses event
+	// is a normal completion; bare EOF and failed writes remain failures.
+	if sr.done && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) &&
+		info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone &&
+		errors.Is(info.StreamStatus.EndError, context.Canceled) && !info.StreamStatus.HasErrors() {
+		info.StreamStatus.EndReason = relaycommon.StreamEndReasonDone
+		info.StreamStatus.EndError = nil
+	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, common.LogText("stream ended: %s", info.StreamStatus.Summary()))
 	} else {

@@ -405,7 +405,7 @@ func decodeOpenAIResponsesDefinition(raw json.RawMessage) (Definition, error) {
 			Function: &Function{
 				Name:        strings.TrimSpace(kitutil.Interface2String(tool["name"])),
 				Description: kitutil.Interface2String(tool["description"]),
-				Parameters:  tool["parameters"],
+				Parameters:  kitutil.ObjectMember(raw, "parameters"),
 				Strict:      boolPointer(tool, "strict"),
 			},
 		}, nil

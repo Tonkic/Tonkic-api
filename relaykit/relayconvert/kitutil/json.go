@@ -133,3 +133,13 @@ func Any2Type[T any](data any) (T, error) {
 	}
 	return res, nil
 }
+
+// ObjectMember returns a raw object member without decoding nested numbers or
+// reordering its properties. The returned bytes are owned by the decoded map.
+func ObjectMember(data []byte, name string) json.RawMessage {
+	var object map[string]json.RawMessage
+	if err := Unmarshal(data, &object); err != nil {
+		return nil
+	}
+	return object[name]
+}

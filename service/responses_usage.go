@@ -66,7 +66,7 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 		a.imageCounter.Commit(a.info)
 		a.imageCommitted = true
 	case "response.output_text.delta", "response.function_call_arguments.delta",
-		"response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.refusal.delta":
+		"response.custom_tool_call_input.delta", "response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.refusal.delta":
 		// Every delta kind here is generated output that upstream bills as
 		// output tokens, so all of them feed the missing-usage estimate.
 		a.outputText.WriteString(event.Delta)
@@ -101,10 +101,13 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 			a.usage.CompletionTokens = tokenkit.Count(a.info.GetUpstreamModelName(), output)
 		}
 	}
-	// Upstream bills the prompt as soon as it starts generating, so a stream
-	// that produced any event but no usage still owes its input tokens unless
-	// upstream reported an explicit failure.
-	billsPrompt := a.usage.CompletionTokens != 0 || (a.started && !a.info.StreamStatus.ResponseFailed())
+	// A created/in-progress event alone is not evidence of billable output.
+	// If the stream is truncated before both terminal usage and generated
+	// output, leave input at zero instead of charging the estimated prompt.
+	// Preserve upstream usage, delivered output and explicit terminal policy.
+	outcome := a.info.StreamStatus.ResponseOutcome()
+	billsPrompt := a.usage.CompletionTokens != 0 ||
+		(a.started && outcome != "" && !a.info.StreamStatus.ResponseFailed())
 	if a.usage.PromptTokens == 0 && billsPrompt {
 		a.usage.PromptTokens = a.info.GetEstimatePromptTokens()
 	}

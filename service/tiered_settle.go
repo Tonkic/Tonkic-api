@@ -136,6 +136,21 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	}
 }
 
+const bpsLocalChannelID = 82
+
+// ApplyBPSLocalCacheWriteAsRead changes only the billing parameters for the
+// BPS channel. Upstream usage and consume-log fields remain untouched so the
+// provider's cache accounting can still be diagnosed independently.
+func ApplyBPSLocalCacheWriteAsRead(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) billingexpr.TokenParams {
+	if relayInfo == nil || relayInfo.ChannelId != bpsLocalChannelID {
+		return params
+	}
+	params.CR += params.CC + params.CC1h
+	params.CC = 0
+	params.CC1h = 0
+	return params
+}
+
 func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.BillingSnapshot, error) {
 	if relayInfo == nil {
 		return nil, nil

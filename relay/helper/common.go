@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -35,6 +36,17 @@ func FlushWriter(c *gin.Context) (err error) {
 	}
 
 	flusher.Flush()
+	var writer http.ResponseWriter = c.Writer
+	for writer != nil {
+		if flusher, ok := writer.(interface{ FlushError() error }); ok {
+			return flusher.FlushError()
+		}
+		unwrapper, ok := writer.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			break
+		}
+		writer = unwrapper.Unwrap()
+	}
 	return nil
 }
 
@@ -56,6 +68,7 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("Transfer-Encoding", "chunked")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer = &streamResponseWriter{ResponseWriter: c.Writer}
 }
 
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
@@ -89,8 +102,14 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
+	event := common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)}
+	if err := event.Render(c.Writer); err != nil {
+		return err
+	}
+	event.Data = fmt.Sprintf("data: %s", data)
+	if err := event.Render(c.Writer); err != nil {
+		return err
+	}
 	return FlushWriter(c)
 }
 
@@ -131,6 +150,29 @@ func ObjectData(c *gin.Context, object any) error {
 		return fmt.Errorf("error marshalling object: %w", err)
 	}
 	return StringData(c, string(jsonData))
+}
+
+// WriteRelayError keeps errors on an established SSE connection in SSE frames.
+// Before any response is committed, it writes a regular JSON error status.
+func WriteRelayError(c *gin.Context, format types.RelayFormat, relayErr *types.NewAPIError) error {
+	upstreamURLs := common.UpstreamAddresses(c)
+	payload := gin.H{"error": relayErr.ToOpenAIError(upstreamURLs...)}
+	if format == types.RelayFormatClaude {
+		payload = gin.H{"type": "error", "error": relayErr.ToClaudeError(upstreamURLs...)}
+	}
+	if c.Writer.Written() && strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+		if format == types.RelayFormatClaude {
+			c.SSEvent("error", payload)
+			return FlushWriter(c)
+		}
+		return ObjectData(c, payload)
+	}
+	if !c.Writer.Written() {
+		// A failed stream attempt may have set SSE headers without writing a byte.
+		c.Writer.Header().Del("Content-Type")
+	}
+	c.JSON(relayErr.StatusCode, payload)
+	return nil
 }
 
 func Done(c *gin.Context) {
