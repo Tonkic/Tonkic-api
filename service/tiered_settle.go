@@ -141,9 +141,21 @@ const bpsLocalChannelID = 82
 // ApplyBPSLocalCacheWriteAsRead changes only the billing parameters for the
 // BPS channel. Upstream usage and consume-log fields remain untouched so the
 // provider's cache accounting can still be diagnosed independently.
-func ApplyBPSLocalCacheWriteAsRead(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) billingexpr.TokenParams {
-	if relayInfo == nil || relayInfo.ChannelId != bpsLocalChannelID {
+func ApplyBPSLocalCacheWriteAsRead(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams, isClaudeUsageSemantic bool, usedVars map[string]bool) billingexpr.TokenParams {
+	if relayInfo == nil || relayInfo.ChannelId != bpsLocalChannelID || !usedVars["cr"] {
 		return params
+	}
+	// Without separate write prices, normalization left creation tokens in P.
+	// Move them out exactly once before charging them at the cache-read rate.
+	// Anthropic input already excludes creation, so its P needs no adjustment.
+	if !isClaudeUsageSemantic {
+		if !usedVars["cc"] {
+			params.P -= params.CC
+		}
+		if !usedVars["cc1h"] {
+			params.P -= params.CC1h
+		}
+		params.P = max(params.P, 0)
 	}
 	params.CR += params.CC + params.CC1h
 	params.CC = 0

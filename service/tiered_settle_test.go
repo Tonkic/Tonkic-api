@@ -61,7 +61,7 @@ func makeRelayInfo(expr string, groupRatio float64, estPrompt, estCompletion int
 func TestApplyBPSLocalCacheWriteAsRead(t *testing.T) {
 	params := billingexpr.TokenParams{P: 100, C: 20, CR: 30, CC: 40, CC1h: 50, Len: 220000}
 
-	converted := ApplyBPSLocalCacheWriteAsRead(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 82}}, params)
+	converted := ApplyBPSLocalCacheWriteAsRead(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 82}}, params, false, map[string]bool{"cr": true, "cc": true, "cc1h": true})
 	require.Equal(t, 120.0, converted.CR)
 	require.Zero(t, converted.CC)
 	require.Zero(t, converted.CC1h)
@@ -69,7 +69,7 @@ func TestApplyBPSLocalCacheWriteAsRead(t *testing.T) {
 	require.Equal(t, params.C, converted.C)
 	require.Equal(t, params.Len, converted.Len)
 
-	unchanged := ApplyBPSLocalCacheWriteAsRead(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 81}}, params)
+	unchanged := ApplyBPSLocalCacheWriteAsRead(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 81}}, params, false, map[string]bool{"cr": true, "cc": true, "cc1h": true})
 	require.Equal(t, params, unchanged)
 }
 
@@ -77,13 +77,55 @@ func TestApplyBPSLocalCacheWriteAsReadUsesCacheReadPrice(t *testing.T) {
 	expr := `tier("default", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc1h * 12.5)`
 	info := makeRelayInfo(expr, 1, 1000, 300)
 	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 82}
-	params := ApplyBPSLocalCacheWriteAsRead(info, billingexpr.TokenParams{P: 1000, C: 300, CR: 100000, CC: 100000, CC1h: 100000, Len: 100000})
+	params := ApplyBPSLocalCacheWriteAsRead(info, billingexpr.TokenParams{P: 1000, C: 300, CR: 100000, CC: 100000, CC1h: 100000, Len: 100000}, false, map[string]bool{"cr": true, "cc": true, "cc1h": true})
 
 	ok, quota, result := TryTieredSettle(info, params)
 	require.True(t, ok)
 	require.NotNil(t, result)
 	// (1000*10 + 300*50 + 300000*1) / 1M * 500000 = 162500.
 	require.Equal(t, 162500, quota)
+}
+
+func TestBPSCacheReadPricingWithoutSeparateWritePrices(t *testing.T) {
+	for _, tc := range []struct {
+		name                                     string
+		channel                                  int
+		claude, priceRead, priceWrite            bool
+		prompt, read, write5m, write1h           int
+		wantP, wantCR, wantCC, wantCC1h, wantLen float64
+	}{
+		{name: "creation moves out of ordinary input", channel: 82, priceRead: true, prompt: 1000, read: 300, write5m: 200, wantP: 500, wantCR: 500, wantLen: 1000},
+		{name: "existing explicit creation variables stay compatible", channel: 82, priceRead: true, priceWrite: true, prompt: 1000, read: 300, write5m: 200, wantP: 500, wantCR: 500, wantLen: 1000},
+		{name: "other channels keep ordinary input semantics", channel: 81, priceRead: true, prompt: 1000, read: 300, write5m: 200, wantP: 700, wantCR: 300, wantCC: 200, wantLen: 1000},
+		{name: "no cache-read variable keeps all input billable", channel: 82, prompt: 1000, read: 300, write5m: 200, wantP: 1000, wantCR: 300, wantCC: 200, wantLen: 1000},
+		{name: "anthropic creation was never in ordinary input", channel: 82, claude: true, priceRead: true, prompt: 500, read: 300, write5m: 150, write1h: 50, wantP: 500, wantCR: 500, wantLen: 1000},
+		{name: "overlapping cache counts never make input negative", channel: 82, priceRead: true, prompt: 100, read: 80, write5m: 40, wantCR: 120, wantLen: 100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			usage := &dto.Usage{PromptTokens: tc.prompt}
+			usage.PromptTokensDetails.CachedTokens = tc.read
+			usage.PromptTokensDetails.CachedCreationTokens = tc.write5m
+			if tc.claude {
+				usage.UsageSemantic = "anthropic"
+				usage.ClaudeCacheCreation5mTokens = tc.write5m
+				usage.ClaudeCacheCreation1hTokens = tc.write1h
+			}
+			original := *usage
+			vars := map[string]bool{"p": true, "c": true, "cr": tc.priceRead, "cc": tc.priceWrite, "cc1h": tc.priceWrite}
+			params := BuildTieredTokenParams(usage, tc.claude, vars)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: tc.channel}}
+			got := ApplyBPSLocalCacheWriteAsRead(info, params, tc.claude, vars)
+			require.Equal(t, tc.wantP, got.P)
+			require.Equal(t, tc.wantCR, got.CR)
+			require.Equal(t, tc.wantCC, got.CC)
+			require.Equal(t, tc.wantCC1h, got.CC1h)
+			require.Equal(t, tc.wantLen, got.Len)
+			require.Equal(t, original, *usage, "raw upstream usage must remain intact")
+			cost, _, err := billingexpr.RunExpr(`tier("standard", p * 10 + c * 50 + cr * 1)`, got)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantP*10+tc.wantCR, cost)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
